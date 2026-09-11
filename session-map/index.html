@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="sv">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#16352e">
+    <title>Följ fordonet</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <main>
+        <div id="map" aria-label="Karta med fordonets senaste position"></div>
+        <section class="status" aria-live="polite">
+            <p class="eyebrow">LIVEPOSITION</p>
+            <h1 id="status-title">Fordon saknas ännu</h1>
+            <p id="status-detail">Positionen uppdateras automatiskt.</p>
+            <dl>
+                <div class="summary">
+                    <span><dt>Resenär</dt><dd id="traveller">Ej angiven</dd></span>
+                    <span><dt>Fordon</dt><dd id="vehicle">Ej tilldelat</dd></span>
+                </div>
+                <div><dt>Från</dt><dd id="pickup">Ej angiven</dd></div>
+                <div><dt>Till</dt><dd id="dropoff">Ej angiven</dd></div>
+            </dl>
+        </section>
+        <p class="updated" id="updated">Ingen position mottagen</p>
+    </main>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

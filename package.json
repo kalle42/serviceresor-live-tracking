@@ -1,0 +1,14 @@
+{
+    "name": "serviceresor-live-tracking",
+    "private": true,
+    "version": "1.0.0",
+    "description": "Scheduled, encrypted live tracking for Serviceresor trips.",
+    "main": "daily-trips.js",
+    "scripts": {
+        "check": "node --check daily-trips.js && node --check session-map/app.js",
+        "plan": "node daily-trips.js"
+    },
+    "dependencies": {
+        "puppeteer-core": "^25.10.0"
+    }
+}

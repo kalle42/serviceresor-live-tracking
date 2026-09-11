@@ -1,0 +1,10 @@
+{
+    "users": [
+        {
+            "id": "user-id",
+            "ssn": "PERSONNUMMER",
+            "password": "SERVICERESOR_PASSWORD",
+            "smsTo": ["+46701234567"]
+        }
+    ]
+}

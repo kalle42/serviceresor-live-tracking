@@ -1,0 +1,11 @@
+{
+    "collections": {
+        "positions": {
+            "fields": {
+                "ciphertext": { "type": "string", "required": true, "maxLength": 10000 },
+                "iv": { "type": "string", "required": true, "maxLength": 100 }
+            },
+            "access": { "read": "public", "insert": "owner", "update": "owner", "delete": "owner" }
+        }
+    }
+}

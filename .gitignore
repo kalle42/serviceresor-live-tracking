@@ -1,0 +1,7 @@
+/.herenow/
+node_modules/
+users.local.json
+session-runtime/
+todays-trips.json
+*.log
+screenshots/*.png
