@@ -46,6 +46,17 @@ try {
         $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Hours 3)
         $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description "Tracks the $($trip.time) trip from ten minutes before departure." -Force | Out-Null
+
+        $checkAt = (Get-Date).Date.AddMinutes([int]$trip.minutes - 60)
+        if ($checkAt -gt (Get-Date)) {
+            $checkTaskName = "Fardtjanst-trip-check-$($plan.date)-$($userPlan.userId)-$($trip.time.Replace(':', ''))"
+            $checkRunner = Join-Path $project 'run-check-trip.ps1'
+            $checkArguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$checkRunner`" -UserId `"$($userPlan.userId)`" -Url `"$($trip.url)`" -Time `"$($trip.time)`" -TrackingTaskName `"$taskName`""
+            $checkAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $checkArguments
+            $checkTrigger = New-ScheduledTaskTrigger -Once -At $checkAt
+            $checkSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
+            Register-ScheduledTask -TaskName $checkTaskName -Action $checkAction -Trigger $checkTrigger -Settings $checkSettings -Principal $principal -Description "Checks whether the $($trip.time) trip is still booked one hour before departure." -Force | Out-Null
+        }
       }
     }
 } finally {

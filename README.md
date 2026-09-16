@@ -41,7 +41,7 @@ The publisher path is machine-specific. Set these variables on each computer:
 
 Run `.\install-scheduled-task.ps1` once from PowerShell. It registers `Serviceresor daily planner` for 01:00. The task must run as the configured Windows user and have access to the user environment variables.
 
-The planner reads all trips under `Idag`, creates one task per user and trip, and starts each tracker ten minutes before departure. Tracking ends 90 minutes after departure or when the 60-minute session URL lifetime expires, whichever comes first.
+The planner reads all trips under `Idag` and creates two tasks per user and trip. One task checks one hour before departure that the booking still exists; if it has been cancelled, the later tracking task is removed. The tracker starts ten minutes before departure. Tracking ends 90 minutes after departure or when the 60-minute session URL lifetime expires, whichever comes first.
 
 ## Security
 

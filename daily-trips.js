@@ -14,6 +14,8 @@ const USERS = JSON.parse(fs.readFileSync(path.join(__dirname, 'users.local.json'
 const MINUTES_BEFORE_DEPARTURE = 10;
 const MINUTES_AFTER_DEPARTURE = 90;
 const SESSION_URL_LIFETIME_MINUTES = 60;
+const VEHICLE_NUMBER_CHECK_INTERVAL_MS = 10000;
+const POSITION_HEARTBEAT_INTERVAL_MS = 30000;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -230,7 +232,6 @@ async function trackTrip(trip, user) {
     let writeQueue = Promise.resolve();
 
     async function updateVehicleNumberFromHeader(page) {
-        if (vehicleNumber) return;
         const number = await page.evaluate(() => {
             const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]'));
             for (const heading of headings) {
@@ -241,6 +242,7 @@ async function trackTrip(trip, user) {
             return document.title.match(/(?:,\s*|\b)(\d{3})\s*$/)?.[1] || null;
         });
         if (!number) return;
+        if (number === vehicleNumber) return;
 
         vehicleNumber = number;
         if (route || lastVehicle) {
@@ -369,16 +371,18 @@ async function trackTrip(trip, user) {
 
         const trackingStopAt = tripDate(trip.minutes + MINUTES_AFTER_DEPARTURE).getTime();
         const stopAt = Math.min(trackingStopAt, sessionExpiresAt);
+        let lastHeartbeatAt = 0;
         while (Date.now() < stopAt) {
-            await delay(30000);
+            await delay(VEHICLE_NUMBER_CHECK_INTERVAL_MS);
             await updateVehicleNumberFromHeader(page);
-            if (lastVehicle) {
+            if (lastVehicle && Date.now() - lastHeartbeatAt >= POSITION_HEARTBEAT_INTERVAL_MS) {
                 await writeSharedData({
                     recorded_at: new Date().toISOString(),
                     ...lastVehicle,
                     ...route,
                     vehicle_number: vehicleNumber || route?.vehicle_number || ''
                 });
+                lastHeartbeatAt = Date.now();
             }
         }
         console.log(`[${trip.time}] Spårning avslutad; sessionslänkens 60-minutersgräns nåddes.`);
@@ -425,7 +429,30 @@ async function runTrackedTrip() {
     await trackTrip(trip, user);
 }
 
-const operation = process.argv[2] === 'track' ? runTrackedTrip : main;
+async function checkTripStatus() {
+    const [, , mode, userId, url, time] = process.argv;
+    if (mode !== 'check' || !userId || !url || !time) {
+        throw new Error('Kontrollens användare, URL eller tid saknas.');
+    }
+
+    const user = USERS.find((candidate) => candidate.id === userId);
+    if (!user) throw new Error(`Okänd användare: ${userId}`);
+    const trips = await getTodaysTrips(user);
+    const stillBooked = trips.some((trip) => trip.url === url);
+    if (!stillBooked) {
+        console.log(`[${time}] Resan finns inte längre i dagens resor och behandlas som avbokad.`);
+        process.exitCode = 10;
+        return;
+    }
+
+    console.log(`[${time}] Resan är fortfarande bokad en timme före avgång.`);
+}
+
+const operation = process.argv[2] === 'track'
+    ? runTrackedTrip
+    : process.argv[2] === 'check'
+        ? checkTripStatus
+        : main;
 operation().catch((error) => {
     console.error('Dagsprocessen avslutades med fel:', error.stack || error);
     process.exitCode = 1;
