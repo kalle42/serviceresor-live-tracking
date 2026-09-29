@@ -93,6 +93,13 @@ function readJson(file, fallback) {
     try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
 }
 
+function localDateKey(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 function tail(file, count = 60) {
     try { return fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean).slice(-count); } catch { return []; }
 }
@@ -146,6 +153,8 @@ async function overview() {
         generatedAt: new Date().toISOString(),
         users: maskedUsers(),
         plan,
+        planStatus: plan.date === localDateKey() ? 'current' : 'stale',
+        localDate: localDateKey(),
         tasks,
         processes,
         sessions: activeSessions(),

@@ -94,6 +94,8 @@ function render(data) {
     renderTasks(data.tasks || []);
     renderEnvironment(data.environment || {});
     renderLogs(data.logs || {});
+    $('#plan-date').classList.toggle('stale', data.planStatus === 'stale');
+    $('#plan-date').title = data.planStatus === 'stale' ? `Planen är från ${data.plan?.date || 'okänt datum'}. Lokal dag är ${data.localDate}.` : 'Aktuell plan';
     $('#updated-at').textContent = new Date(data.generatedAt).toLocaleTimeString('sv-SE');
 }
 

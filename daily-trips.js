@@ -20,6 +20,13 @@ const POSITION_HEARTBEAT_INTERVAL_MS = 30000;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function localDateKey(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 function registerSession(session, trip, user) {
     fs.mkdirSync(SESSION_RUNTIME_DIR, { recursive: true });
     fs.writeFileSync(path.join(SESSION_RUNTIME_DIR, `${session.slug}.json`), JSON.stringify({
@@ -493,7 +500,7 @@ async function main() {
         trips = plans.flatMap((plan) => plan.trips);
         fs.writeFileSync(
             path.join(__dirname, 'todays-trips.json'),
-            JSON.stringify({ date: new Date().toISOString().slice(0, 10), users: plans }, null, 2)
+            JSON.stringify({ date: localDateKey(), users: plans }, null, 2)
         );
     } catch (error) {
         console.error('Kunde inte läsa dagens resor:', error.stack || error);

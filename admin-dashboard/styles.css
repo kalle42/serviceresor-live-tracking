@@ -37,6 +37,7 @@ h1 { max-width:680px; margin:0; font-size:clamp(2.8rem,6vw,6.6rem); line-height:
 .panel-heading h2 { margin:0; font-size:2rem; line-height:.9; text-transform:uppercase; }
 .section-number { font-size:.72rem; }
 .date-chip { padding:6px 9px; color:#fff; background:var(--forest-2); font-size:.72rem; }
+.date-chip.stale { color:#fff; background:var(--red); }
 .trips-panel, .users-panel, .tasks-panel, .logs-panel { grid-column:1; }
 .sessions-panel, .system-panel { grid-column:2; }
 .trip-list, .stack-list, .user-list { display:grid; gap:10px; }
