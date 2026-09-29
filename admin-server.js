@@ -67,7 +67,7 @@ function readUsers() {
 function maskedUsers() {
     return readUsers().users.map((user) => ({
         id: user.id,
-        ssnMasked: user.ssn ? `${user.ssn.slice(0, 4)}••••-••••` : 'Not set',
+        ssnMasked: user.ssn ? `${user.ssn.slice(0, 4)}****-****` : 'Not set',
         hasPassword: Boolean(user.password),
         smsTo: user.smsTo || [],
         textbeeTo: user.textbeeTo || [],

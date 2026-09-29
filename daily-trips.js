@@ -27,11 +27,12 @@ function localDateKey(date = new Date()) {
     return `${year}-${month}-${day}`;
 }
 
-function registerSession(session, trip, user) {
+function registerSession(session, shareUrl, trip, user) {
     fs.mkdirSync(SESSION_RUNTIME_DIR, { recursive: true });
     fs.writeFileSync(path.join(SESSION_RUNTIME_DIR, `${session.slug}.json`), JSON.stringify({
         slug: session.slug,
         siteUrl: session.siteUrl,
+        mapUrl: shareUrl,
         userId: user.id,
         tripTime: trip.time,
         createdAt: new Date().toISOString()
@@ -298,9 +299,9 @@ async function trackTrip(trip, user) {
     const browser = await launchBrowser();
     const sessionKey = crypto.randomBytes(32);
     const session = createSessionSite();
-    registerSession(session, trip, user);
     const sessionExpiresAt = Date.now() + SESSION_URL_LIFETIME_MINUTES * 60000;
     const shareUrl = `${session.siteUrl}#${base64Url(sessionKey)}`;
+    registerSession(session, shareUrl, trip, user);
     let recordId;
     let route;
     let lastVehicle;

@@ -48,17 +48,22 @@
             <div class="dashboard-grid">
                 <section class="panel trips-panel" id="trips">
                     <div class="panel-heading"><div><p class="section-number">01</p><h2>Dagens resor</h2></div><span class="date-chip" id="plan-date">Ingen plan</span></div>
-                    <div id="trip-list" class="trip-list empty-state">Ingen planeringsdata ännu.</div>
+                    <div id="trip-list" class="trip-list empty-state"><span class="loading-line">Läser dagens resor...</span></div>
                 </section>
 
                 <section class="panel sessions-panel">
                     <div class="panel-heading"><div><p class="section-number">02</p><h2>Aktiva sessioner</h2></div><button class="text-button danger" id="stop-button">Stäng alla</button></div>
-                    <div id="session-list" class="stack-list empty-state">Inga aktiva kartor.</div>
+                    <div id="session-list" class="stack-list empty-state"><span class="loading-line">Läser aktiva sessioner...</span></div>
+                </section>
+
+                <section class="panel gallery-panel" id="gallery">
+                    <div class="panel-heading"><div><p class="section-number">03</p><h2>Pågående resor</h2></div><span class="date-chip">Livekartor</span></div>
+                    <div id="gallery-list" class="map-gallery empty-state">Inga pågående resor.</div>
                 </section>
 
                 <section class="panel users-panel" id="users">
-                    <div class="panel-heading"><div><p class="section-number">03</p><h2>Användare & leverans</h2></div><button class="text-button" id="new-user-button">+ Ny användare</button></div>
-                    <div id="user-list" class="user-list"></div>
+                    <div class="panel-heading"><div><p class="section-number">04</p><h2>Användare & leverans</h2></div><button class="text-button" id="new-user-button">+ Ny användare</button></div>
+                    <div id="user-list" class="user-list"><span class="loading-line">Läser användare...</span></div>
                     <form id="user-form" class="user-form hidden">
                         <div class="form-title"><h3 id="form-title">Redigera användare</h3><button type="button" class="icon-button" id="close-form" aria-label="Close">×</button></div>
                         <label>ID<input id="user-id" required pattern="[A-Za-z0-9_-]+" autocomplete="username"></label>
@@ -74,17 +79,17 @@
                 </section>
 
                 <section class="panel tasks-panel" id="tasks">
-                    <div class="panel-heading"><div><p class="section-number">04</p><h2>Windows-uppgifter</h2></div></div>
+                    <div class="panel-heading"><div><p class="section-number">05</p><h2>Windows-uppgifter</h2></div></div>
                     <div class="table-wrap"><table><thead><tr><th>Uppgift</th><th>Status</th><th>Nästa</th><th>Resultat</th></tr></thead><tbody id="task-list"></tbody></table></div>
                 </section>
 
                 <section class="panel system-panel">
-                    <div class="panel-heading"><div><p class="section-number">05</p><h2>Systemmiljö</h2></div></div>
+                    <div class="panel-heading"><div><p class="section-number">06</p><h2>Systemmiljö</h2></div></div>
                     <div id="environment-list" class="environment-list"></div>
                 </section>
 
                 <section class="panel logs-panel" id="logs">
-                    <div class="panel-heading"><div><p class="section-number">06</p><h2>Senaste loggar</h2></div><select id="log-selector"><option value="planner">Planerare</option><option value="errors">Fel</option><option value="morning">Morgonresa</option><option value="afternoon">Eftermiddagsresa</option></select></div>
+                    <div class="panel-heading"><div><p class="section-number">07</p><h2>Senaste loggar</h2></div><select id="log-selector"><option value="planner">Planerare</option><option value="errors">Fel</option><option value="morning">Morgonresa</option><option value="afternoon">Eftermiddagsresa</option></select></div>
                     <pre id="log-output">Laddar...</pre>
                 </section>
             </div>

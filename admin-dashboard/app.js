@@ -47,6 +47,13 @@ function renderSessions(sessions) {
     $('#session-list').className = sessions.length ? 'stack-list' : 'stack-list empty-state';
     $('#session-list').innerHTML = sessions.length ? sessions.map((session) => `
         <div class="list-row"><strong>${escapeHtml(session.userId)} · ${escapeHtml(session.tripTime)}</strong><p>${escapeHtml(session.slug)}</p><p>Startad ${formatDate(session.createdAt)}</p></div>`).join('') : 'Inga aktiva kartor.';
+    $('#gallery-list').className = sessions.length ? 'map-gallery' : 'map-gallery empty-state';
+    $('#gallery-list').innerHTML = sessions.length ? sessions.map((session) => `
+        <article class="map-card">
+            <div class="map-card-heading"><div><span class="map-live-dot"></span><strong>${escapeHtml(session.userId)}</strong><span>${escapeHtml(session.tripTime)}</span></div><a href="${escapeHtml(session.mapUrl)}" target="_blank" rel="noreferrer">Öppna</a></div>
+            <iframe src="${escapeHtml(session.mapUrl)}" title="Livekarta för ${escapeHtml(session.userId)}" loading="lazy" referrerpolicy="no-referrer"></iframe>
+            <p>Session startad ${formatDate(session.createdAt)}</p>
+        </article>`).join('') : 'Inga pågående resor.';
 }
 
 function renderUsers(users) {
@@ -103,7 +110,10 @@ async function refresh(silent = false) {
     try {
         render(await api('/api/overview'));
         if (!silent) toast('Dashboard uppdaterad');
-    } catch (error) { toast(error.message); }
+    } catch (error) {
+        $('#planner-status').textContent = 'Kunde inte läsa';
+        toast(error.message);
+    }
 }
 
 function openUserForm(user = null) {
