@@ -11,6 +11,7 @@ const SHARE_API_KEY = process.env.HERENOW_API_KEY || fs.readFileSync(
     'utf8'
 ).trim();
 const USERS = JSON.parse(fs.readFileSync(path.join(__dirname, 'users.local.json'), 'utf8')).users;
+const SESSION_RUNTIME_DIR = path.join(__dirname, 'session-runtime');
 const MINUTES_BEFORE_DEPARTURE = 10;
 const MINUTES_AFTER_DEPARTURE = 90;
 const SESSION_URL_LIFETIME_MINUTES = 60;
@@ -18,6 +19,21 @@ const VEHICLE_NUMBER_CHECK_INTERVAL_MS = 10000;
 const POSITION_HEARTBEAT_INTERVAL_MS = 30000;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function registerSession(session, trip, user) {
+    fs.mkdirSync(SESSION_RUNTIME_DIR, { recursive: true });
+    fs.writeFileSync(path.join(SESSION_RUNTIME_DIR, `${session.slug}.json`), JSON.stringify({
+        slug: session.slug,
+        siteUrl: session.siteUrl,
+        userId: user.id,
+        tripTime: trip.time,
+        createdAt: new Date().toISOString()
+    }, null, 2));
+}
+
+function unregisterSession(slug) {
+    fs.rmSync(path.join(SESSION_RUNTIME_DIR, `${slug}.json`), { force: true });
+}
 
 process.on('uncaughtException', (error) => console.error('Oväntat processfel:', error.stack || error));
 process.on('unhandledRejection', (error) => console.error('Ohanterat asynkront fel:', error.stack || error));
@@ -203,6 +219,56 @@ async function sendTrackingSms(to, url, time) {
     return response.json();
 }
 
+async function sendTrackingTextBee(recipients, url, time) {
+    const apiKey = process.env.TEXTBEE_API_KEY;
+    if (!apiKey) throw new Error('TextBee API-nyckel saknas.');
+    if (!recipients.length) throw new Error('TextBee saknar mottagare.');
+    if (recipients.some((number) => !/^\+[1-9]\d{7,14}$/.test(number))) {
+        throw new Error('En TextBee-mottagare har ogiltigt E.164-format.');
+    }
+
+    const baseUrl = (process.env.TEXTBEE_BASE_URL || 'https://api.textbee.dev/api/v1').replace(/\/$/, '');
+    const payload = { recipients, message: `Följ resan ${time}: ${url}` };
+    if (process.env.TEXTBEE_DEVICE_ID) payload.deviceId = process.env.TEXTBEE_DEVICE_ID;
+    const response = await fetch(`${baseUrl}/gateway/send-sms`, {
+        method: 'POST',
+        headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.data?.success === false) {
+        throw new Error(`TextBee kunde inte skicka SMS (${response.status}): ${result.message || result.error || 'okänt fel'}`);
+    }
+    return result;
+}
+
+async function sendTrackingNtfy(topic, url, time) {
+    if (!/^[-_A-Za-z0-9]{1,64}$/.test(topic)) {
+        throw new Error('ntfy-topic har ogiltigt format.');
+    }
+
+    const server = (process.env.NTFY_SERVER_URL || 'https://ntfy.sh').replace(/\/$/, '');
+    const headers = {
+        Title: `Serviceresa ${time}`,
+        Priority: 'high',
+        Tags: 'car',
+        Click: url
+    };
+    if (process.env.NTFY_ACCESS_TOKEN) {
+        headers.Authorization = `Bearer ${process.env.NTFY_ACCESS_TOKEN}`;
+    }
+
+    const response = await fetch(`${server}/${encodeURIComponent(topic)}`, {
+        method: 'POST',
+        headers,
+        body: `Livekartan för resan ${time} är tillgänglig i 60 minuter.`
+    });
+    if (!response.ok) {
+        throw new Error(`ntfy kunde inte skicka notisen (${response.status}).`);
+    }
+    return response.json();
+}
+
 function encryptPayload(payload, key) {
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -215,14 +281,17 @@ function encryptPayload(payload, key) {
 
 async function trackTrip(trip, user) {
     const smsRecipients = (Array.isArray(user.smsTo) ? user.smsTo : [user.smsTo]).filter(Boolean);
-    if (smsRecipients.length === 0) {
-        console.log(`[${trip.time}] Ingen SMS-mottagare för ${user.id}; spårningen hoppas över.`);
+    const ntfyTopics = (Array.isArray(user.ntfyTopics) ? user.ntfyTopics : [user.ntfyTopics]).filter(Boolean);
+    const textBeeRecipients = (Array.isArray(user.textbeeTo) ? user.textbeeTo : [user.textbeeTo]).filter(Boolean);
+    if (smsRecipients.length === 0 && ntfyTopics.length === 0 && textBeeRecipients.length === 0) {
+        console.log(`[${trip.time}] Ingen SMS-, TextBee- eller ntfy-mottagare för ${user.id}; spårningen hoppas över.`);
         return;
     }
 
     const browser = await launchBrowser();
     const sessionKey = crypto.randomBytes(32);
     const session = createSessionSite();
+    registerSession(session, trip, user);
     const sessionExpiresAt = Date.now() + SESSION_URL_LIFETIME_MINUTES * 60000;
     const shareUrl = `${session.siteUrl}#${base64Url(sessionKey)}`;
     let recordId;
@@ -286,17 +355,35 @@ async function trackTrip(trip, user) {
     }
 
     try {
-        const smsResults = await Promise.allSettled(
-            smsRecipients.map((recipient) => sendTrackingSms(recipient, shareUrl, trip.time))
-        );
-        const sentCount = smsResults.filter((result) => result.status === 'fulfilled').length;
+        const smsResults = await Promise.allSettled(smsRecipients.map((recipient) =>
+            sendTrackingSms(recipient, shareUrl, trip.time)
+        ));
+        const ntfyResults = await Promise.allSettled(ntfyTopics.map((topic) =>
+            sendTrackingNtfy(topic, shareUrl, trip.time)
+        ));
+        const textBeeResults = textBeeRecipients.length === 0 ? [] : [await sendTrackingTextBee(textBeeRecipients, shareUrl, trip.time)
+            .then(() => ({ status: 'fulfilled' }))
+            .catch((reason) => ({ status: 'rejected', reason }))];
+        const sentSmsCount = smsResults.filter((result) => result.status === 'fulfilled').length;
+        const sentNtfyCount = ntfyResults.filter((result) => result.status === 'fulfilled').length;
+        const sentTextBeeCount = textBeeResults.filter((result) => result.status === 'fulfilled').length;
         smsResults.forEach((result, index) => {
             if (result.status === 'rejected') {
                 console.error(`[${trip.time}] SMS till ${smsRecipients[index]} misslyckades: ${result.reason.message}`);
             }
         });
-        if (sentCount === 0) throw new Error('Spårningslänken kunde inte skickas till någon mottagare.');
-        console.log(`[${trip.time}] Spårningslänken skickades till ${sentCount} mottagare för ${user.id}.`);
+        ntfyResults.forEach((result) => {
+            if (result.status === 'rejected') {
+                console.error(`[${trip.time}] ntfy-notis misslyckades: ${result.reason.message}`);
+            }
+        });
+        textBeeResults.forEach((result) => {
+            if (result.status === 'rejected') console.error(`[${trip.time}] TextBee-SMS misslyckades: ${result.reason.message}`);
+        });
+        if (sentSmsCount + sentNtfyCount + sentTextBeeCount === 0) {
+            throw new Error('Spårningslänken kunde inte skickas via SMS, TextBee eller ntfy.');
+        }
+        console.log(`[${trip.time}] Spårningslänken skickades via ${sentSmsCount} SMS, ${sentTextBeeCount} TextBee och ${sentNtfyCount} ntfy-notiser för ${user.id}.`);
         const page = await browser.newPage();
         page.on('response', (response) => {
             const contentType = response.headers()['content-type'] || '';
@@ -389,6 +476,7 @@ async function trackTrip(trip, user) {
     } finally {
         await browser.close().catch(() => {});
         await deleteSessionSite(session.slug);
+        unregisterSession(session.slug);
         console.log(`[${trip.time}] Sessionskartan stängdes och togs bort.`);
     }
 }

@@ -4,7 +4,9 @@
             "id": "user-id",
             "ssn": "PERSONNUMMER",
             "password": "SERVICERESOR_PASSWORD",
-            "smsTo": ["+46701234567"]
+            "smsTo": ["+46701234567"],
+            "textbeeTo": ["+46701234567"],
+            "ntfyTopics": ["replace-with-a-long-random-topic"]
         }
     ]
 }

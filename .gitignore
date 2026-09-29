@@ -3,5 +3,7 @@ node_modules/
 users.local.json
 session-runtime/
 todays-trips.json
+admin-dashboard.log
+admin-dashboard-test*
 *.log
 screenshots/*.png
