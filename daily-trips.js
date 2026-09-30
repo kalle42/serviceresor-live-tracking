@@ -27,7 +27,7 @@ function localDateKey(date = new Date()) {
     return `${year}-${month}-${day}`;
 }
 
-function registerSession(session, shareUrl, trip, user) {
+function registerSession(session, shareUrl, trip, user, expiresAt) {
     fs.mkdirSync(SESSION_RUNTIME_DIR, { recursive: true });
     fs.writeFileSync(path.join(SESSION_RUNTIME_DIR, `${session.slug}.json`), JSON.stringify({
         slug: session.slug,
@@ -35,12 +35,23 @@ function registerSession(session, shareUrl, trip, user) {
         mapUrl: shareUrl,
         userId: user.id,
         tripTime: trip.time,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(expiresAt).toISOString()
     }, null, 2));
 }
 
 function unregisterSession(slug) {
     fs.rmSync(path.join(SESSION_RUNTIME_DIR, `${slug}.json`), { force: true });
+}
+
+function updateSessionMetadata(slug, metadata) {
+    const file = path.join(SESSION_RUNTIME_DIR, `${slug}.json`);
+    try {
+        const current = JSON.parse(fs.readFileSync(file, 'utf8'));
+        fs.writeFileSync(file, JSON.stringify({ ...current, ...metadata }, null, 2));
+    } catch {
+        // The session may have been closed while an asynchronous response was still pending.
+    }
 }
 
 process.on('uncaughtException', (error) => console.error('Oväntat processfel:', error.stack || error));
@@ -301,7 +312,7 @@ async function trackTrip(trip, user) {
     const session = createSessionSite();
     const sessionExpiresAt = Date.now() + SESSION_URL_LIFETIME_MINUTES * 60000;
     const shareUrl = `${session.siteUrl}#${base64Url(sessionKey)}`;
-    registerSession(session, shareUrl, trip, user);
+    registerSession(session, shareUrl, trip, user, sessionExpiresAt);
     let recordId;
     let route;
     let lastVehicle;
@@ -322,6 +333,7 @@ async function trackTrip(trip, user) {
         if (number === vehicleNumber) return;
 
         vehicleNumber = number;
+        updateSessionMetadata(session.slug, { vehicleNumber });
         if (route || lastVehicle) {
             await writeSharedData({
                 recorded_at: new Date().toISOString(),
@@ -403,6 +415,7 @@ async function trackTrip(trip, user) {
                     const info = payload?.data || payload;
                     if (info?.vehicleNbr !== undefined && Number(info.vehicleNbr) !== 0) {
                         vehicleNumber = String(info.vehicleNbr);
+                        updateSessionMetadata(session.slug, { vehicleNumber });
                         if (route || lastVehicle) {
                             await writeSharedData({ recorded_at: new Date().toISOString(), ...lastVehicle, ...route, vehicle_number: vehicleNumber });
                         }
@@ -431,6 +444,12 @@ async function trackTrip(trip, user) {
                     pickup_address: tripData?.pickup?.displayAddress || '',
                     dropoff_address: tripData?.dropoff?.displayAddress || ''
                 };
+                updateSessionMetadata(session.slug, {
+                    firstName: route.first_name,
+                    pickupAddress: route.pickup_address,
+                    dropoffAddress: route.dropoff_address,
+                    vehicleNumber: route.vehicle_number || vehicleNumber || ''
+                });
                 await writeSharedData({ recorded_at: new Date().toISOString(), ...lastVehicle, ...route });
                 console.log(`[${trip.time}] Från och Till publicerade.`);
             }).catch((error) => console.error(`[${trip.time}] Kunde inte läsa resdata:`, error.message));

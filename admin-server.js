@@ -106,10 +106,27 @@ function tail(file, count = 60) {
 
 function activeSessions() {
     try {
+        const now = Date.now();
         return fs.readdirSync(SESSION_RUNTIME_DIR)
             .filter((file) => file.endsWith('.json'))
-            .map((file) => readJson(path.join(SESSION_RUNTIME_DIR, file), null))
-            .filter(Boolean);
+            .map((file) => ({ file, session: readJson(path.join(SESSION_RUNTIME_DIR, file), null) }))
+            .filter(({ file, session }) => {
+                if (!session) return false;
+                const expiresAt = session.expiresAt
+                    ? new Date(session.expiresAt).getTime()
+                    : new Date(session.createdAt).getTime() + 60 * 60000;
+                if (Number.isFinite(expiresAt) && expiresAt <= now) {
+                    fs.rmSync(path.join(SESSION_RUNTIME_DIR, file), { force: true });
+                    return false;
+                }
+                session.expiresAt = new Date(expiresAt).toISOString();
+                return true;
+            })
+            .map(({ session }) => session)
+            .map((session) => ({
+                ...session,
+                embedUrl: session.mapUrl?.replace('/#', '/?embed=1#')
+            }));
     } catch {
         return [];
     }

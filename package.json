@@ -5,7 +5,7 @@
     "description": "Scheduled, encrypted live tracking for Serviceresor trips.",
     "main": "daily-trips.js",
     "scripts": {
-        "check": "node --check daily-trips.js && node --check session-map/app.js && node --check admin-server.js && node --check admin-dashboard/app.js",
+        "check": "node --check daily-trips.js && node --check session-map/app.js && node --check admin-server.js && node --check admin-dashboard/app.js && node --check admin-dashboard/ongoing.js",
         "plan": "node daily-trips.js",
         "admin": "node admin-server.js"
     },

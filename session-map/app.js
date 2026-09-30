@@ -1,4 +1,5 @@
 const map = L.map('map').setView([57.688, 11.923], 13);
+if (new URLSearchParams(location.search).get('embed') === '1') document.body.classList.add('embed');
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
 
 const vehicleIcon = L.divIcon({
