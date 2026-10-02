@@ -83,7 +83,7 @@ function renderTasks(tasks) {
 
 function renderEnvironment(environment) {
     const entries = [
-        ['here.now', environment.hereNow], ['Publisher', environment.publisher], ['Git Bash', environment.gitBash],
+        ['here.now', environment.hereNow],
         ['46elks', environment.sms], ['ntfy token', environment.ntfyToken], ['ntfy server', environment.ntfyServer]
     ];
     $('#environment-list').innerHTML = entries.map(([label, value]) => {

@@ -79,33 +79,6 @@ void CheckCommand(string command, string name, string installHint)
     return ($"{output}{error}", process.ExitCode);
 }
 
-string? FirstExisting(params string?[] candidates)
-{
-    return candidates.FirstOrDefault(candidate => !string.IsNullOrWhiteSpace(candidate) && File.Exists(candidate));
-}
-
-string? FindGitBash(string? configured)
-{
-    var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-    var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-    return FirstExisting(
-        configured,
-        Path.Combine(programFiles, "Git", "bin", "bash.exe"),
-        Path.Combine(programFilesX86, "Git", "bin", "bash.exe")
-    );
-}
-
-string? FindPublisher(string? configured)
-{
-    var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-    return FirstExisting(
-        configured,
-        Path.Combine(home, ".agents", "skills", "here-now", "scripts", "publish.sh"),
-        Path.Combine(home, ".claude", "skills", "here-now", "scripts", "publish.sh"),
-        Path.Combine(home, ".config", "opencode", "skills", "here-now", "scripts", "publish.sh")
-    );
-}
-
 try
 {
     Header("Välkommen. Guiden kontrollerar datorn och installerar tjänsten.");
@@ -122,7 +95,6 @@ try
     CheckCommand("npm.cmd", "npm", "https://nodejs.org/");
     CheckCommand("git.exe", "Git", "https://git-scm.com/download/win");
     CheckCommand("dotnet.exe", ".NET", "https://dotnet.microsoft.com/download");
-    CheckCommand("jq.exe", "jq", "winget install jqlang.jq");
     var chrome = new[]
     {
         @"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -148,25 +120,6 @@ try
 
     Header("Steg 3 av 4 · Lokala integrationer");
     Save("HERENOW_API_KEY", ReadSecret("here.now API-nyckel", Existing("HERENOW_API_KEY")));
-    var gitBash = FindGitBash(Existing("GIT_BASH_PATH"));
-    if (gitBash is null) throw new InvalidOperationException("Git Bash kunde inte hittas automatiskt. Installera Git för Windows.");
-    Save("GIT_BASH_PATH", gitBash);
-    Console.WriteLine($"  [AUTO] Git Bash: {gitBash}");
-
-    var publisher = FindPublisher(Existing("HERENOW_PUBLISH_SCRIPT"));
-    if (publisher is null)
-    {
-        Console.WriteLine("  Installerar here.now-skillen automatiskt...");
-        var skillInstall = RunProcess("npx.cmd", "--yes skills add heredotnow/skill --skill here-now -g", null);
-        if (skillInstall.ExitCode == 0) publisher = FindPublisher(null);
-    }
-    if (publisher is null)
-    {
-        publisher = ReadText("Automatisk upptäckt misslyckades. Ange sökväg till publish.sh");
-    }
-    if (!File.Exists(publisher)) throw new InvalidOperationException("publish.sh kunde inte hittas.");
-    Save("HERENOW_PUBLISH_SCRIPT", publisher);
-    Console.WriteLine($"  [AUTO] publish.sh: {publisher}");
     Save("ELKS_API_USERNAME", ReadText("46elks API-användarnamn", Existing("ELKS_API_USERNAME")));
     Save("ELKS_API_PASSWORD", ReadSecret("46elks API-lösenord", Existing("ELKS_API_PASSWORD")));
     Save("TEXTBEE_API_KEY", ReadSecret("TextBee API-nyckel", Existing("TEXTBEE_API_KEY")));

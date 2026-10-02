@@ -46,7 +46,6 @@ Require-Command 'npm.cmd' 'https://nodejs.org/'
 Require-Command 'powershell.exe' 'Windows PowerShell'
 Require-Command 'dotnet.exe' 'https://dotnet.microsoft.com/download'
 Require-Command 'git.exe' 'https://git-scm.com/download/win'
-Require-Command 'jq.exe' 'winget install jqlang.jq'
 
 $chromePaths = @(
     'C:\Program Files\Google\Chrome\Application\chrome.exe',
@@ -87,30 +86,6 @@ if ($AdminPassword.Length -lt 12) {
 }
 Set-LocalEnvironmentValue 'ADMIN_DASHBOARD_PASSWORD' $AdminPassword
 
-$gitBashCandidates = @(
-    $env:GIT_BASH_PATH,
-    'C:\Program Files\Git\bin\bash.exe',
-    'C:\Program Files (x86)\Git\bin\bash.exe'
-)
-$gitBash = $gitBashCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
-if (-not $gitBash) { throw 'Git Bash kunde inte hittas automatiskt.' }
-Set-LocalEnvironmentValue 'GIT_BASH_PATH' $gitBash
-
-$publisherCandidates = @(
-    $env:HERENOW_PUBLISH_SCRIPT,
-    (Join-Path $HOME '.agents\skills\here-now\scripts\publish.sh'),
-    (Join-Path $HOME '.claude\skills\here-now\scripts\publish.sh'),
-    (Join-Path $HOME '.config\opencode\skills\here-now\scripts\publish.sh')
-)
-$publisher = $publisherCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
-if (-not $publisher) {
-    Write-Host 'Installerar here.now-skillen automatiskt...'
-    npx.cmd --yes skills add heredotnow/skill --skill here-now -g
-    $publisher = $publisherCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
-}
-if (-not $publisher) { throw 'publish.sh kunde inte hittas automatiskt.' }
-Set-LocalEnvironmentValue 'HERENOW_PUBLISH_SCRIPT' $publisher
-
 if (-not $SkipTasks) {
     & (Join-Path $Project 'install-scheduled-task.ps1') -Project $Project
     & (Join-Path $Project 'install-admin-task.ps1') -Project $Project
@@ -121,5 +96,5 @@ Write-Host ''
 Write-Host 'Installationen är klar.' -ForegroundColor Green
 Write-Host '1. Fyll i users.local.json med riktiga Serviceresor-uppgifter.'
 Write-Host '2. Konfigurera HERENOW_API_KEY eller %USERPROFILE%\.herenow\credentials.'
-Write-Host '3. Konfigurera HERENOW_PUBLISH_SCRIPT och önskade leveranskanaler.'
+Write-Host '3. Konfigurera here.now och önskade leveranskanaler i .env.local.json.'
 Write-Host '4. Öppna http://127.0.0.1:8787 för adminpanelen.'

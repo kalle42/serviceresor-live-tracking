@@ -2,7 +2,6 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { spawnSync } = require('child_process');
 const puppeteer = require('puppeteer-core');
 
 require('./local-env').loadLocalEnvironment(__dirname);
@@ -12,8 +11,11 @@ const SHARE_API_KEY = process.env.HERENOW_API_KEY || fs.readFileSync(
     path.join(os.homedir(), '.herenow', 'credentials'),
     'utf8'
 ).trim();
-const USERS = JSON.parse(fs.readFileSync(path.join(__dirname, 'users.local.json'), 'utf8')).users;
-const SESSION_RUNTIME_DIR = path.join(__dirname, 'session-runtime');
+const USERS_FILE = process.env.USERS_FILE || path.join(__dirname, 'users.local.json');
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+const USERS = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')).users;
+const SESSION_RUNTIME_DIR = path.join(DATA_DIR, 'session-runtime');
+const PLAN_FILE = path.join(DATA_DIR, 'todays-trips.json');
 const MINUTES_BEFORE_DEPARTURE = 10;
 const MINUTES_AFTER_DEPARTURE = 90;
 const SESSION_URL_LIFETIME_MINUTES = 60;
@@ -125,14 +127,22 @@ async function loginWithRetry(page, user, attempts = 3) {
 }
 
 async function launchBrowser() {
+    const linux = process.platform === 'linux';
+    const executablePath = process.env.CHROME_EXECUTABLE || (linux
+        ? '/usr/bin/chromium'
+        : 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe');
+    const headless = process.env.TRACKER_HEADLESS
+        ? process.env.TRACKER_HEADLESS !== 'false'
+        : linux;
     return puppeteer.launch({
-        headless: false,
-        executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        headless,
+        executablePath,
         args: [
             '--disable-backgrounding-occluded-windows',
             '--disable-renderer-backgrounding',
             '--disable-gpu',
             '--no-first-run',
+            ...(linux ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] : []),
             `--user-data-dir=${fs.mkdtempSync(path.join(os.tmpdir(), 'daily-trips-'))}`
         ]
     });
@@ -204,29 +214,69 @@ function base64Url(value) {
     return Buffer.from(value).toString('base64url');
 }
 
-function createSessionSite() {
-    const bash = process.env.GIT_BASH_PATH || 'C:\\Program Files\\Git\\bin\\bash.exe';
-    const publishScript = process.env.HERENOW_PUBLISH_SCRIPT;
-    if (!publishScript) throw new Error('HERENOW_PUBLISH_SCRIPT saknas.');
-    const toPosix = (value) => value.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
-    const target = toPosix(path.join(__dirname, 'session-map'));
-    const publisher = toPosix(publishScript);
-    const adapter = toPosix(path.join(__dirname, 'tools', 'sha256sum'));
-    const command = `chmod +x "${adapter}"; export PATH="${path.posix.dirname(adapter)}:$PATH"; "${publisher}" "${target}" --ttl 3600 --client opencode`;
-    const result = spawnSync(bash, ['-c', command], {
-        cwd: __dirname,
-        encoding: 'utf8',
-        env: {
-            ...process.env,
-            HERENOW_API_KEY: SHARE_API_KEY
-        }
+function contentType(file) {
+    return ({
+        '.html': 'text/html; charset=utf-8',
+        '.css': 'text/css; charset=utf-8',
+        '.js': 'text/javascript; charset=utf-8',
+        '.json': 'application/json; charset=utf-8'
+    })[path.extname(file)] || 'application/octet-stream';
+}
+
+function collectPublishFiles(directory, root = directory) {
+    return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+        const absolute = path.join(directory, entry.name);
+        if (entry.isDirectory()) return collectPublishFiles(absolute, root);
+        const data = fs.readFileSync(absolute);
+        return [{
+            path: path.relative(root, absolute).replace(/\\/g, '/'),
+            absolute,
+            data,
+            size: data.length,
+            contentType: contentType(absolute),
+            hash: crypto.createHash('sha256').update(data).digest('hex')
+        }];
     });
-    if (result.status !== 0) {
-        throw new Error(`Sessionskartan kunde inte publiceras: ${result.stderr || result.stdout}`);
+}
+
+async function createSessionSite() {
+    const files = collectPublishFiles(path.join(__dirname, 'session-map'));
+    const headers = {
+        Authorization: `Bearer ${SHARE_API_KEY}`,
+        'Content-Type': 'application/json',
+        'X-HereNow-Client': 'serviceresor-live-tracking/node'
+    };
+    const create = await fetch('https://here.now/api/v1/publish', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+            files: files.map(({ path: filePath, size, contentType: type, hash }) => ({ path: filePath, size, contentType: type, hash })),
+            ttlSeconds: SESSION_URL_LIFETIME_MINUTES * 60,
+            displayName: 'Serviceresor livekarta'
+        })
+    });
+    const publication = await create.json();
+    if (!create.ok) throw new Error(`Sessionskartan kunde inte skapas (${create.status}): ${publication.error || publication.message}`);
+
+    for (const upload of publication.upload.uploads || []) {
+        const file = files.find((candidate) => candidate.path === upload.path);
+        if (!file) throw new Error(`Publiceringsfil saknas: ${upload.path}`);
+        const response = await fetch(upload.url, {
+            method: 'PUT',
+            headers: upload.headers || { 'Content-Type': file.contentType },
+            body: file.data
+        });
+        if (!response.ok) throw new Error(`Uppladdning misslyckades för ${upload.path} (${response.status}).`);
     }
-    const siteUrl = result.stdout.match(/https:\/\/[a-z0-9-]+\.here\.now\//)?.[0];
-    if (!siteUrl) throw new Error('Publiceringen returnerade ingen kartlänk.');
-    return { siteUrl, slug: new URL(siteUrl).hostname.split('.')[0] };
+
+    const finalize = await fetch(publication.upload.finalizeUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ versionId: publication.upload.versionId })
+    });
+    const finalized = await finalize.json();
+    if (!finalize.ok) throw new Error(`Sessionskartan kunde inte publiceras (${finalize.status}): ${finalized.error || finalized.message}`);
+    return { siteUrl: finalized.siteUrl || publication.siteUrl, slug: finalized.slug || publication.slug };
 }
 
 async function deleteSessionSite(slug) {
@@ -329,7 +379,7 @@ async function trackTrip(trip, user) {
 
     const browser = await launchBrowser();
     const sessionKey = crypto.randomBytes(32);
-    let session = createSessionSite();
+    let session = await createSessionSite();
     const sessionExpiresAt = Date.now() + SESSION_URL_LIFETIME_MINUTES * 60000;
     let shareUrl = `${session.siteUrl}#${base64Url(sessionKey)}`;
     registerSession(session, shareUrl, trip, user, sessionExpiresAt);
@@ -373,7 +423,7 @@ async function trackTrip(trip, user) {
         sessionRotationCount += 1;
         await deleteSessionSite(session.slug).catch(() => {});
         unregisterSession(session.slug);
-        session = createSessionSite();
+        session = await createSessionSite();
         shareUrl = `${session.siteUrl}#${base64Url(sessionKey)}`;
         recordId = undefined;
         registerSession(session, shareUrl, trip, user, sessionExpiresAt);
@@ -558,7 +608,7 @@ async function main() {
         }
         trips = plans.flatMap((plan) => plan.trips);
         fs.writeFileSync(
-            path.join(__dirname, 'todays-trips.json'),
+            PLAN_FILE,
             JSON.stringify({ date: localDateKey(), users: plans }, null, 2)
         );
     } catch (error) {
@@ -602,12 +652,16 @@ async function checkTripStatus() {
     console.log(`[${time}] Resan är fortfarande bokad en timme före avgång.`);
 }
 
-const operation = process.argv[2] === 'track'
-    ? runTrackedTrip
-    : process.argv[2] === 'check'
-        ? checkTripStatus
-        : main;
-operation().catch((error) => {
-    console.error('Dagsprocessen avslutades med fel:', error.stack || error);
-    process.exitCode = 1;
-});
+if (require.main === module) {
+    const operation = process.argv[2] === 'track'
+        ? runTrackedTrip
+        : process.argv[2] === 'check'
+            ? checkTripStatus
+            : main;
+    operation().catch((error) => {
+        console.error('Dagsprocessen avslutades med fel:', error.stack || error);
+        process.exitCode = 1;
+    });
+}
+
+module.exports = { USERS, getTodaysTrips, trackTrip, localDateKey, createSessionSite, deleteSessionSite };

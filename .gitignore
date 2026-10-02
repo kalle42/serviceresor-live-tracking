@@ -2,6 +2,8 @@
 node_modules/
 users.local.json
 .env.local.json
+.env.docker
+docker-data/
 session-runtime/
 todays-trips.json
 admin-dashboard.log

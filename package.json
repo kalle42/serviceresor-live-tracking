@@ -5,9 +5,10 @@
     "description": "Scheduled, encrypted live tracking for Serviceresor trips.",
     "main": "tracking-service.js",
     "scripts": {
-        "check": "node --check tracking-service.js && node --check session-map/app.js && node --check admin-server.js && node --check admin-dashboard/app.js",
+        "check": "node --check tracking-service.js && node --check linux-daemon.js && node --check container-runner.js && node --check session-map/app.js && node --check admin-server.js && node --check admin-dashboard/app.js",
         "plan": "node tracking-service.js",
-        "admin": "node admin-server.js"
+        "admin": "node admin-server.js",
+        "linux": "node linux-daemon.js"
     },
     "dependencies": {
         "puppeteer-core": "^25.10.0"

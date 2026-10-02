@@ -1,15 +1,14 @@
 # Serviceresor Live Tracking
 
-Windows-app som läser dagens Serviceresor, kontrollerar avbokningar och skapar krypterade livekartor. Kartlänken kan skickas via 46elks, TextBee och/eller ntfy. Kartan stängs efter 60 minuter.
+App för Windows och Linux som läser dagens Serviceresor, kontrollerar avbokningar och skapar krypterade livekartor. Kartlänken kan skickas via 46elks, TextBee och/eller ntfy. Kartan stängs efter 60 minuter.
 
-## Krav
+## Windows-krav
 
 - Windows 10 eller senare
-- Git för Windows och Git Bash
+- Git för Windows
 - Node.js LTS
 - .NET 8 SDK
 - Google Chrome
-- `jq`
 
 ## Installera med exe-guiden
 
@@ -26,8 +25,6 @@ Kör den från projektmappen:
 ```
 
 Guiden kontrollerar kraven, frågar efter lokalt adminlösenord och lokala värden för here.now, 46elks, TextBee och ntfy. Hemliga värden maskeras och sparas i `.env.local.json`, som ignoreras av Git. Valfria integrationer kan lämnas tomma.
-
-Git Bash hittas automatiskt från Git för Windows. `publish.sh` hittas automatiskt i vanliga skill-mappar. Om den saknas installerar guiden here.now-skillen med `npx` och försöker igen. Manuell sökväg efterfrågas endast om automatiken misslyckas.
 
 Serviceresor-användarnas personnummer och lösenord lagras separat i `users.local.json`.
 
@@ -46,6 +43,59 @@ git pull --ff-only origin development
 ```
 
 Kör `setup-app.ps1 -SkipTasks` om schemalagda uppgifter inte ska registreras.
+
+## Linux med Docker
+
+Docker-versionen innehåller Chromium och en Linux-daemon som ersätter Windows Task Scheduler. Docker Engine med Compose-plugin krävs.
+
+```bash
+git clone --branch development https://github.com/kalle42/serviceresor-live-tracking.git
+cd serviceresor-live-tracking
+cp users.example.json users.local.json
+cp .env.docker.example .env.docker
+```
+
+Fyll i riktiga Serviceresor-uppgifter och mottagare i `users.local.json`. Sätt ett adminlösenord med minst 12 tecken och en here.now API-nyckel i `.env.docker`. 46elks, TextBee och ntfy är valfria.
+
+Validera konfigurationen och starta sedan containern:
+
+```bash
+docker compose config
+docker compose up -d --build
+docker compose ps
+docker compose logs -f
+```
+
+När `docker compose ps` visar `healthy` finns adminpanelen på `http://127.0.0.1:8787`. Logga in som `admin` med lösenordet från `.env.docker`. Porten binds bara till värddatorns localhost.
+
+Starta om efter konfigurationsändringar och stoppa tjänsten med:
+
+```bash
+docker compose up -d --force-recreate
+docker compose down
+```
+
+Planer, sessioner och processregister sparas i Docker-volymen `serviceresor-data`. `users.local.json` monteras från projektmappen så att användare kan redigeras i adminpanelen. `.env.docker` och användarfilen byggs inte in i imagen och ignoreras av Git.
+
+Vid felsökning:
+
+```bash
+docker compose logs --tail 200 serviceresor
+docker compose restart serviceresor
+```
+
+`docker compose down -v` tar även bort sparade planer och sessionsdata.
+
+## Linux utan Docker
+
+Installera Node.js, Chromium och npm-paketen. Sätt minst `CHROME_EXECUTABLE`, `TRACKER_HEADLESS=true`, `DATA_DIR`, `USERS_FILE`, `ADMIN_DASHBOARD_PASSWORD` och `HERENOW_API_KEY`. Starta sedan:
+
+```bash
+npm ci
+npm run linux
+```
+
+Starta adminservern separat med `npm run admin`.
 
 ## Lokal konfiguration
 
@@ -96,6 +146,6 @@ npm audit
 
 ## Säkerhet
 
-Commit:a aldrig `.env.local.json`, `users.local.json`, `.herenow`, `session-runtime`, loggar, screenshots eller API-nycklar. Rotera credentials som har exponerats i chat eller Git.
+Commit:a aldrig `.env.local.json`, `.env.docker`, `users.local.json`, `.herenow`, `session-runtime`, loggar, screenshots eller API-nycklar. Rotera credentials som har exponerats i chat eller Git.
 
 Kartorna använder OpenStreetMap med synlig attribution, normalt browser-cachebeteende, ingen tile-prefetch och ingen offline-nedladdning. Se [OpenStreetMap Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/) innan kartlagret ändras.

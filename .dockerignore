@@ -1,0 +1,15 @@
+.git
+.github
+.herenow
+.env.local.json
+.env.docker
+users.local.json
+docker-data
+node_modules
+session-runtime
+screenshots
+*.log
+installer/bin
+installer/obj
+tray/bin
+tray/obj

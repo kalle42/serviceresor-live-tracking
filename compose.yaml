@@ -1,0 +1,32 @@
+services:
+  serviceresor:
+    build:
+      context: .
+    image: serviceresor-live-tracking:local
+    restart: unless-stopped
+    init: true
+    shm_size: 1gb
+    env_file:
+      - .env.docker
+    environment:
+      TZ: Europe/Stockholm
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ./users.local.json:/app/config/users.local.json
+      - serviceresor-data:/app/data
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/').then(r=>{if(r.status!==401)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  serviceresor-data:
