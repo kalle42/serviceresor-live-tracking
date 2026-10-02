@@ -1,6 +1,15 @@
 const map = L.map('map').setView([57.688, 11.923], 13);
 if (new URLSearchParams(location.search).get('embed') === '1') document.body.classList.add('embed');
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors · <a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener noreferrer">Report a map issue</a>';
+
+L.tileLayer(OSM_TILE_URL, {
+    maxZoom: 19,
+    attribution: OSM_ATTRIBUTION,
+    updateWhenIdle: true,
+    updateWhenZooming: false,
+    keepBuffer: 1
+}).addTo(map);
 
 const vehicleIcon = L.divIcon({
     className: '',

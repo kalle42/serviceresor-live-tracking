@@ -104,6 +104,24 @@ async function login(page, user) {
     );
 }
 
+async function loginWithRetry(page, user, attempts = 3) {
+    let lastError;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+            await login(page, user);
+            return;
+        } catch (error) {
+            lastError = error;
+            console.error(`Inloggning misslyckades, försök ${attempt}/${attempts}: ${error.message}`);
+            if (attempt < attempts) {
+                await page.goto(SERVICE_URL, { waitUntil: 'networkidle2' }).catch(() => {});
+                await delay(1500);
+            }
+        }
+    }
+    throw lastError;
+}
+
 async function launchBrowser() {
     return puppeteer.launch({
         headless: false,
@@ -309,15 +327,57 @@ async function trackTrip(trip, user) {
 
     const browser = await launchBrowser();
     const sessionKey = crypto.randomBytes(32);
-    const session = createSessionSite();
+    let session = createSessionSite();
     const sessionExpiresAt = Date.now() + SESSION_URL_LIFETIME_MINUTES * 60000;
-    const shareUrl = `${session.siteUrl}#${base64Url(sessionKey)}`;
+    let shareUrl = `${session.siteUrl}#${base64Url(sessionKey)}`;
     registerSession(session, shareUrl, trip, user, sessionExpiresAt);
     let recordId;
     let route;
     let lastVehicle;
     let vehicleNumber;
     let writeQueue = Promise.resolve();
+    let sessionRotationCount = 0;
+
+    async function deliverShareLink(url) {
+        const smsResults = await Promise.allSettled(smsRecipients.map((recipient) =>
+            sendTrackingSms(recipient, url, trip.time)
+        ));
+        const ntfyResults = await Promise.allSettled(ntfyTopics.map((topic) =>
+            sendTrackingNtfy(topic, url, trip.time)
+        ));
+        const textBeeResults = textBeeRecipients.length === 0 ? [] : [await sendTrackingTextBee(textBeeRecipients, url, trip.time)
+            .then(() => ({ status: 'fulfilled' }))
+            .catch((reason) => ({ status: 'rejected', reason }))];
+        const sentSmsCount = smsResults.filter((result) => result.status === 'fulfilled').length;
+        const sentNtfyCount = ntfyResults.filter((result) => result.status === 'fulfilled').length;
+        const sentTextBeeCount = textBeeResults.filter((result) => result.status === 'fulfilled').length;
+        smsResults.forEach((result, index) => {
+            if (result.status === 'rejected') console.error(`[${trip.time}] SMS till ${smsRecipients[index]} misslyckades: ${result.reason.message}`);
+        });
+        ntfyResults.forEach((result) => {
+            if (result.status === 'rejected') console.error(`[${trip.time}] ntfy-notis misslyckades: ${result.reason.message}`);
+        });
+        textBeeResults.forEach((result) => {
+            if (result.status === 'rejected') console.error(`[${trip.time}] TextBee-SMS misslyckades: ${result.reason.message}`);
+        });
+        if (sentSmsCount + sentNtfyCount + sentTextBeeCount === 0) {
+            throw new Error('Spårningslänken kunde inte skickas via någon kanal.');
+        }
+        console.log(`[${trip.time}] Länk skickad via ${sentSmsCount} SMS, ${sentTextBeeCount} TextBee och ${sentNtfyCount} ntfy.`);
+    }
+
+    async function rotateSession() {
+        if (sessionRotationCount >= 1) throw new Error('Sessionskartan försvann igen efter rotation.');
+        sessionRotationCount += 1;
+        await deleteSessionSite(session.slug).catch(() => {});
+        unregisterSession(session.slug);
+        session = createSessionSite();
+        shareUrl = `${session.siteUrl}#${base64Url(sessionKey)}`;
+        recordId = undefined;
+        registerSession(session, shareUrl, trip, user, sessionExpiresAt);
+        await deliverShareLink(shareUrl);
+        console.log(`[${trip.time}] Ny sessionskarta skapad efter 404 och ny länk skickad.`);
+    }
 
     async function updateVehicleNumberFromHeader(page) {
         const number = await page.evaluate(() => {
@@ -364,6 +424,11 @@ async function trackTrip(trip, user) {
                     return;
                 }
 
+                if (response.status === 404 && attempt === 1) {
+                    await rotateSession();
+                    continue;
+                }
+
                 const detail = (await response.text()).slice(0, 300);
                 if (attempt === 3) {
                     throw new Error(`Kartdata kunde inte publiceras (${response.status}): ${detail}`);
@@ -375,35 +440,7 @@ async function trackTrip(trip, user) {
     }
 
     try {
-        const smsResults = await Promise.allSettled(smsRecipients.map((recipient) =>
-            sendTrackingSms(recipient, shareUrl, trip.time)
-        ));
-        const ntfyResults = await Promise.allSettled(ntfyTopics.map((topic) =>
-            sendTrackingNtfy(topic, shareUrl, trip.time)
-        ));
-        const textBeeResults = textBeeRecipients.length === 0 ? [] : [await sendTrackingTextBee(textBeeRecipients, shareUrl, trip.time)
-            .then(() => ({ status: 'fulfilled' }))
-            .catch((reason) => ({ status: 'rejected', reason }))];
-        const sentSmsCount = smsResults.filter((result) => result.status === 'fulfilled').length;
-        const sentNtfyCount = ntfyResults.filter((result) => result.status === 'fulfilled').length;
-        const sentTextBeeCount = textBeeResults.filter((result) => result.status === 'fulfilled').length;
-        smsResults.forEach((result, index) => {
-            if (result.status === 'rejected') {
-                console.error(`[${trip.time}] SMS till ${smsRecipients[index]} misslyckades: ${result.reason.message}`);
-            }
-        });
-        ntfyResults.forEach((result) => {
-            if (result.status === 'rejected') {
-                console.error(`[${trip.time}] ntfy-notis misslyckades: ${result.reason.message}`);
-            }
-        });
-        textBeeResults.forEach((result) => {
-            if (result.status === 'rejected') console.error(`[${trip.time}] TextBee-SMS misslyckades: ${result.reason.message}`);
-        });
-        if (sentSmsCount + sentNtfyCount + sentTextBeeCount === 0) {
-            throw new Error('Spårningslänken kunde inte skickas via SMS, TextBee eller ntfy.');
-        }
-        console.log(`[${trip.time}] Spårningslänken skickades via ${sentSmsCount} SMS, ${sentTextBeeCount} TextBee och ${sentNtfyCount} ntfy-notiser för ${user.id}.`);
+        await deliverShareLink(shareUrl);
         const page = await browser.newPage();
         page.on('response', (response) => {
             const contentType = response.headers()['content-type'] || '';
@@ -478,7 +515,7 @@ async function trackTrip(trip, user) {
             };
         });
 
-        await login(page, user);
+        await loginWithRetry(page, user);
         await page.goto(trip.url, { waitUntil: 'networkidle2' });
         await updateVehicleNumberFromHeader(page);
         console.log(`[${trip.time}] Spårning startad.`);

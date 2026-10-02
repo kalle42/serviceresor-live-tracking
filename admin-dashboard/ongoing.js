@@ -26,7 +26,7 @@ function render(sessions) {
         <article class="trip-map-card">
             <div class="map-frame">
                 <span class="live-label">Live</span>
-                <iframe src="${escapeHtml(session.embedUrl || session.mapUrl)}" title="Livekarta för ${escapeHtml(session.firstName || session.userId)}" loading="lazy" referrerpolicy="no-referrer"></iframe>
+                <iframe src="${escapeHtml(session.embedUrl || session.mapUrl)}" title="Livekarta för ${escapeHtml(session.firstName || session.userId)}" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
             </div>
             <div class="trip-info">
                 <div class="trip-title"><h2>${escapeHtml(fallback(session.firstName, session.userId))}</h2><strong>${escapeHtml(session.tripTime)}</strong></div>

@@ -116,6 +116,10 @@ Run `.\install-scheduled-task.ps1` once from PowerShell. It registers `Servicere
 
 The planner reads all trips under `Idag` and creates two tasks per user and trip. One task checks one hour before departure that the booking still exists; if it has been cancelled, the later tracking task is removed. The tracker starts ten minutes before departure. Tracking ends 90 minutes after departure or when the 60-minute session URL lifetime expires, whichever comes first.
 
+## OpenStreetMap tiles
+
+The live map uses `https://tile.openstreetmap.org/{z}/{x}/{y}.png` for normal interactive viewing only. The map displays clickable OpenStreetMap attribution and a map-issue link. It does not prefetch areas, bulk-download tiles, provide offline maps, or disable browser caching. Tile layers request only the active viewport, update while idle, do not keep a large off-screen buffer, and preserve a normal cross-origin `Referer`. The ongoing-resor gallery uses lazy iframe loading so inactive maps do not all request tiles at once. Browser requests retain their normal identification and referrer behavior. See the [OpenStreetMap Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/) before changing the tile provider or adding map features.
+
 ## Security
 
 Never commit `users.local.json`, `.herenow/`, logs, screenshots, API keys, or SMS credentials. Rotate any credentials that have been exposed in chat, terminals, or version control.
