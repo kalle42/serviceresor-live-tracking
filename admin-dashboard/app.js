@@ -49,6 +49,19 @@ function renderSessions(sessions) {
         <div class="list-row"><strong>${escapeHtml(session.userId)} · ${escapeHtml(session.tripTime)}</strong><p>${escapeHtml(session.slug)}</p><p>Startad ${formatDate(session.createdAt)} · stängs ${formatDate(session.expiresAt)}</p></div>`).join('') : 'Inga aktiva kartor.';
 }
 
+function renderActiveTrips(sessions) {
+    const listElement = $('#active-trip-list');
+    listElement.className = sessions.length ? 'active-trip-list' : 'active-trip-list empty-state';
+    listElement.innerHTML = sessions.length ? sessions.map((session) => `
+        <article class="active-trip-row">
+            <div class="active-trip-main"><span class="map-live-dot"></span><strong>${escapeHtml(session.firstName || session.userId)}</strong><span>${escapeHtml(session.tripTime)}</span></div>
+            <div><span>Fordon</span><strong>${escapeHtml(session.vehicleNumber || 'Ej tilldelat')}</strong></div>
+            <div class="active-trip-route"><span>Från</span><p>${escapeHtml(session.pickupAddress || 'Ej angiven')}</p></div>
+            <div class="active-trip-route"><span>Till</span><p>${escapeHtml(session.dropoffAddress || 'Ej angiven')}</p></div>
+            <div class="active-trip-expiry"><span>Stängs</span><strong>${escapeHtml(formatDate(session.expiresAt))}</strong></div>
+        </article>`).join('') : 'Inga aktiva resor just nu.';
+}
+
 function renderUsers(users) {
     $('#user-list').innerHTML = users.map((user) => `
         <article class="user-card">
@@ -90,6 +103,7 @@ function render(data) {
     state.overview = data;
     renderTrips(data.plan);
     renderSessions(data.sessions || []);
+    renderActiveTrips(data.sessions || []);
     renderUsers(data.users || []);
     renderTasks(data.tasks || []);
     renderEnvironment(data.environment || {});
