@@ -5,5 +5,7 @@ session-runtime/
 todays-trips.json
 admin-dashboard.log
 admin-dashboard-test*
+installer/bin/
+installer/obj/
 *.log
 screenshots/*.png

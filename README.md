@@ -6,6 +6,22 @@ Windows-app som läser dagens Serviceresor, kontrollerar avbokningar och startar
 
 Kräver Windows, Git, Node.js LTS, Google Chrome, Git Bash och `jq`.
 
+Bygg den interaktiva Windows-guiden:
+
+```powershell
+dotnet publish .\installer\ServiceresorInstaller.csproj -c Release -r win-x64 --self-contained true
+```
+
+Starta sedan:
+
+```powershell
+.\installer\bin\Release\net8.0\win-x64\publish\ServiceresorInstaller.exe
+```
+
+Guiden kontrollerar Node.js, npm, Git och Chrome, frågar efter adminlösenordet utan att visa tecknen och kör den befintliga PowerShell-installern. Den frågar aldrig efter eller sparar Serviceresor-, SMS-, TextBee-, ntfy- eller here.now-uppgifter.
+
+Alternativt kan installationen köras direkt:
+
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 & ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/kalle42/serviceresor-live-tracking/development/deploy.ps1).Content))

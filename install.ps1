@@ -52,6 +52,9 @@ if (-not (Test-Path -LiteralPath 'node_modules')) {
 }
 
 if (-not $AdminPassword) {
+    $AdminPassword = $env:ADMIN_DASHBOARD_PASSWORD
+}
+if (-not $AdminPassword) {
     $securePassword = Read-Host 'Enter a local admin dashboard password' -AsSecureString
     $AdminPassword = [System.Net.NetworkCredential]::new('', $securePassword).Password
 }
