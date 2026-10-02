@@ -50,7 +50,7 @@ function updateSessionMetadata(slug, metadata) {
         const current = JSON.parse(fs.readFileSync(file, 'utf8'));
         fs.writeFileSync(file, JSON.stringify({ ...current, ...metadata }, null, 2));
     } catch {
-        // The session may have been closed while an asynchronous response was still pending.
+        // Sessionen kan ha stängts medan ett asynkront svar fortfarande väntade.
     }
 }
 

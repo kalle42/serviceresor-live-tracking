@@ -9,57 +9,59 @@ $ErrorActionPreference = 'Stop'
 
 function Require-Command([string]$Name, [string]$InstallHint) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
-        throw "$Name was not found. Install it first: $InstallHint"
+        throw "$Name saknas. Installera först: $InstallHint"
     }
 }
 
 function Set-UserEnvironment([string]$Name, [string]$Value) {
     if ($Value) {
         [Environment]::SetEnvironmentVariable($Name, $Value, 'User')
-        Write-Host "Configured $Name"
+        Write-Host "Konfigurerade $Name"
     }
 }
 
 if (-not (Test-Path -LiteralPath $Project -PathType Container)) {
-    throw "Project directory does not exist: $Project"
+    throw "Projektmappen finns inte: $Project"
 }
 
 Set-Location -LiteralPath $Project
 Require-Command 'node.exe' 'https://nodejs.org/'
 Require-Command 'npm.cmd' 'https://nodejs.org/'
 Require-Command 'powershell.exe' 'Windows PowerShell'
+Require-Command 'dotnet.exe' 'https://dotnet.microsoft.com/download'
 
 $chromePaths = @(
     'C:\Program Files\Google\Chrome\Application\chrome.exe',
     'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe'
 )
 if (-not ($chromePaths | Where-Object { Test-Path -LiteralPath $_ })) {
-    throw 'Google Chrome was not found. Install it before running the tracker.'
+    throw 'Google Chrome hittades inte.'
 }
 
 if (-not (Test-Path -LiteralPath 'users.local.json')) {
     Copy-Item -LiteralPath 'users.example.json' -Destination 'users.local.json'
-    Write-Host 'Created users.local.json from users.example.json. Fill in credentials and recipients before use.' -ForegroundColor Yellow
+    Write-Host 'Skapade users.local.json från exempelkonfigurationen.' -ForegroundColor Yellow
 } else {
-    Write-Host 'Keeping existing users.local.json.'
+    Write-Host 'Behåller befintlig users.local.json.'
 }
 
 if (-not (Test-Path -LiteralPath 'node_modules')) {
-    Write-Host 'Installing Node dependencies...'
+    Write-Host 'Installerar Node-beroenden...'
     npm install
 } else {
-    Write-Host 'Node dependencies already installed.'
+    Write-Host 'Node-beroenden är redan installerade.'
 }
 
+Write-Host 'Bygger tray-ikon...'
+dotnet publish (Join-Path $Project 'tray\ServiceresorTray.csproj') -c Release -r win-x64 --self-contained true
+
+if (-not $AdminPassword) { $AdminPassword = $env:ADMIN_DASHBOARD_PASSWORD }
 if (-not $AdminPassword) {
-    $AdminPassword = $env:ADMIN_DASHBOARD_PASSWORD
-}
-if (-not $AdminPassword) {
-    $securePassword = Read-Host 'Enter a local admin dashboard password' -AsSecureString
+    $securePassword = Read-Host 'Ange lokalt adminlösenord' -AsSecureString
     $AdminPassword = [System.Net.NetworkCredential]::new('', $securePassword).Password
 }
 if ($AdminPassword.Length -lt 12) {
-    throw 'Admin dashboard password must contain at least 12 characters.'
+    throw 'Adminlösenordet måste ha minst 12 tecken.'
 }
 Set-UserEnvironment 'ADMIN_DASHBOARD_PASSWORD' $AdminPassword
 
@@ -71,11 +73,12 @@ if (Test-Path -LiteralPath $gitBash) {
 if (-not $SkipTasks) {
     & (Join-Path $Project 'install-scheduled-task.ps1') -Project $Project
     & (Join-Path $Project 'install-admin-task.ps1') -Project $Project
+    & (Join-Path $Project 'setup-tray.ps1') -Project $Project
 }
 
 Write-Host ''
-Write-Host 'Installation complete.' -ForegroundColor Green
-Write-Host '1. Edit users.local.json with real Serviceresor credentials.'
-Write-Host '2. Configure HERENOW_API_KEY or %USERPROFILE%\.herenow\credentials.'
-Write-Host '3. Configure HERENOW_PUBLISH_SCRIPT, ELKS_API_USERNAME/ELKS_API_PASSWORD, and optional TextBee/ntfy settings.'
-Write-Host '4. Open http://127.0.0.1:8787 after the admin task starts.'
+Write-Host 'Installationen är klar.' -ForegroundColor Green
+Write-Host '1. Fyll i users.local.json med riktiga Serviceresor-uppgifter.'
+Write-Host '2. Konfigurera HERENOW_API_KEY eller %USERPROFILE%\.herenow\credentials.'
+Write-Host '3. Konfigurera HERENOW_PUBLISH_SCRIPT och önskade leveranskanaler.'
+Write-Host '4. Öppna http://127.0.0.1:8787 för adminpanelen.'

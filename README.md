@@ -20,6 +20,8 @@ Starta sedan:
 
 Guiden kontrollerar Node.js, npm, Git och Chrome, frågar efter adminlösenordet utan att visa tecknen och kör den befintliga PowerShell-installern. Den frågar aldrig efter eller sparar Serviceresor-, SMS-, TextBee-, ntfy- eller here.now-uppgifter.
 
+Installern bygger även en tray-app. Den visas i Windows systemfält och öppnar adminpanelen med dubbelklick eller högerklicksmenyn. Tray-appen registreras i den aktuella användarens Windows-autostart och kräver inte administratörsrättigheter.
+
 Alternativt kan installationen köras direkt:
 
 ```powershell
@@ -34,10 +36,10 @@ För en redan klonad mapp:
 ```powershell
 git pull --ff-only origin development
 Set-ExecutionPolicy -Scope Process Bypass
-.\install.ps1
+.\setup.ps1
 ```
 
-Använd `.\install.ps1 -SkipTasks` om du vill installera utan att registrera schemalagda uppgifter.
+Använd `.\setup.ps1 -SkipTasks` om du vill installera utan att registrera schemalagda uppgifter.
 
 ## Lokal konfiguration
 
@@ -88,6 +90,13 @@ Installern kan starta panelen automatiskt vid Windows-inloggning:
 
 ```powershell
 .\install-admin-task.ps1
+```
+
+Tray-ikonen installeras automatiskt av `setup.ps1`. Manuell installation:
+
+```powershell
+dotnet publish .\tray\ServiceresorTray.csproj -c Release -r win-x64 --self-contained true
+.\setup-tray.ps1
 ```
 
 ## Automatik

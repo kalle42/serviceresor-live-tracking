@@ -83,9 +83,9 @@ try
 
     var project = Directory.GetCurrentDirectory();
     Console.WriteLine($"Projektmapp: {project}");
-    if (!File.Exists(Path.Combine(project, "install.ps1")))
+    if (!File.Exists(Path.Combine(project, "setup.ps1")))
     {
-        throw new FileNotFoundException("install.ps1 hittades inte. Kör exe-filen från projektmappen.");
+        throw new FileNotFoundException("setup.ps1 hittades inte. Kör exe-filen från projektmappen.");
     }
 
     Header("Steg 1 av 3 · Kontrollerar krav");
@@ -108,7 +108,7 @@ try
     Header("Steg 3 av 3 · Installerar");
     var environment = new Dictionary<string, string> { ["ADMIN_DASHBOARD_PASSWORD"] = adminPassword };
     var powershell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe");
-    var arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{Path.Combine(project, "install.ps1")}\"";
+    var arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{Path.Combine(project, "setup.ps1")}\"";
     Console.WriteLine("Installerar beroenden och registrerar Windows-uppgifter...");
     var result = RunProcess(powershell, arguments, environment, false);
     if (result.ExitCode != 0) throw new InvalidOperationException(result.Output);
