@@ -1,8 +1,9 @@
 using System.Diagnostics;
-using System.Security;
+using System.Text;
+using System.Text.Json;
 
 const string product = "Serviceresor Live Tracking";
-Console.OutputEncoding = System.Text.Encoding.UTF8;
+Console.OutputEncoding = Encoding.UTF8;
 
 void Header(string text)
 {
@@ -17,10 +18,17 @@ void Header(string text)
     Console.WriteLine();
 }
 
-string ReadSecret(string prompt)
+string ReadText(string prompt, string? current = null)
 {
-    Console.Write(prompt);
-    var value = new System.Text.StringBuilder();
+    Console.Write(current is null ? $"{prompt}: " : $"{prompt} [Enter behåller befintligt]: ");
+    var value = Console.ReadLine()?.Trim() ?? string.Empty;
+    return string.IsNullOrEmpty(value) && current is not null ? current : value;
+}
+
+string ReadSecret(string prompt, string? current = null)
+{
+    Console.Write(current is null ? $"{prompt}: " : $"{prompt} [Enter behåller befintligt]: ");
+    var value = new StringBuilder();
     while (true)
     {
         var key = Console.ReadKey(intercept: true);
@@ -38,20 +46,17 @@ string ReadSecret(string prompt)
         }
     }
     Console.WriteLine();
-    return value.ToString();
+    return value.Length == 0 && current is not null ? current : value.ToString();
 }
 
 void CheckCommand(string command, string name, string installHint)
 {
-    var result = RunProcess(command, "--version", null, false);
-    if (result.ExitCode != 0)
-    {
-        throw new InvalidOperationException($"{name} saknas. Installera först: {installHint}");
-    }
+    var result = RunProcess(command, "--version", null);
+    if (result.ExitCode != 0) throw new InvalidOperationException($"{name} saknas. Installera först: {installHint}");
     Console.WriteLine($"  [OK] {name}");
 }
 
-(string Output, int ExitCode) RunProcess(string file, string arguments, Dictionary<string, string>? environment, bool showWindow)
+(string Output, int ExitCode) RunProcess(string file, string arguments, Dictionary<string, string>? environment)
 {
     var start = new ProcessStartInfo
     {
@@ -61,7 +66,7 @@ void CheckCommand(string command, string name, string installHint)
         UseShellExecute = false,
         RedirectStandardOutput = true,
         RedirectStandardError = true,
-        CreateNoWindow = !showWindow
+        CreateNoWindow = true
     };
     if (environment is not null)
     {
@@ -77,21 +82,19 @@ void CheckCommand(string command, string name, string installHint)
 try
 {
     Header("Välkommen. Guiden kontrollerar datorn och installerar tjänsten.");
-    Console.WriteLine("Installationen ändrar endast den valda projektmappen och Windows schemalagda uppgifter.");
-    Console.WriteLine("Tjänsteuppgifter för Serviceresor, here.now, SMS och ntfy frågas aldrig efter av denna guide.");
-    Console.WriteLine();
+    Console.WriteLine("Lokala tjänstevärden sparas i .env.local.json. Filen ignoreras av Git.");
+    Console.WriteLine("Lämna valfria fält tomma om integrationen inte ska användas.");
 
     var project = Directory.GetCurrentDirectory();
-    Console.WriteLine($"Projektmapp: {project}");
-    if (!File.Exists(Path.Combine(project, "setup.ps1")))
-    {
-        throw new FileNotFoundException("setup.ps1 hittades inte. Kör exe-filen från projektmappen.");
-    }
+    var setupScript = Path.Combine(project, "setup-app.ps1");
+    var environmentFile = Path.Combine(project, ".env.local.json");
+    if (!File.Exists(setupScript)) throw new FileNotFoundException("setup-app.ps1 hittades inte. Kör exe-filen från projektmappen.");
 
-    Header("Steg 1 av 3 · Kontrollerar krav");
+    Header("Steg 1 av 4 · Kontrollerar krav");
     CheckCommand("node.exe", "Node.js", "https://nodejs.org/");
-    CheckCommand("npm.cmd", "npm", "Installera Node.js LTS från https://nodejs.org/");
+    CheckCommand("npm.cmd", "npm", "https://nodejs.org/");
     CheckCommand("git.exe", "Git", "https://git-scm.com/download/win");
+    CheckCommand("dotnet.exe", ".NET", "https://dotnet.microsoft.com/download");
     var chrome = new[]
     {
         @"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -100,25 +103,46 @@ try
     if (chrome is null) throw new InvalidOperationException("Google Chrome hittades inte.");
     Console.WriteLine("  [OK] Google Chrome");
 
-    Header("Steg 2 av 3 · Lokal adminpanel");
-    Console.WriteLine("Adminpanelen körs lokalt på http://127.0.0.1:8787.");
-    var adminPassword = ReadSecret("Välj adminlösenord (minst 12 tecken): ");
-    if (adminPassword.Length < 12) throw new InvalidOperationException("Adminlösenordet måste ha minst 12 tecken.");
+    var values = File.Exists(environmentFile)
+        ? JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(environmentFile)) ?? new()
+        : new Dictionary<string, string>();
+    string? Existing(string name) => values.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value) ? value : null;
+    void Save(string name, string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) values.Remove(name);
+        else values[name] = value;
+    }
 
-    Header("Steg 3 av 3 · Installerar");
-    var environment = new Dictionary<string, string> { ["ADMIN_DASHBOARD_PASSWORD"] = adminPassword };
+    Header("Steg 2 av 4 · Lokal adminpanel");
+    var adminPassword = ReadSecret("Adminlösenord, minst 12 tecken", Existing("ADMIN_DASHBOARD_PASSWORD"));
+    if (adminPassword.Length < 12) throw new InvalidOperationException("Adminlösenordet måste ha minst 12 tecken.");
+    Save("ADMIN_DASHBOARD_PASSWORD", adminPassword);
+
+    Header("Steg 3 av 4 · Lokala integrationer");
+    Save("HERENOW_API_KEY", ReadSecret("here.now API-nyckel", Existing("HERENOW_API_KEY")));
+    Save("HERENOW_PUBLISH_SCRIPT", ReadText("Sökväg till here.now publish.sh", Existing("HERENOW_PUBLISH_SCRIPT")));
+    Save("GIT_BASH_PATH", ReadText("Sökväg till Git Bash", Existing("GIT_BASH_PATH") ?? @"C:\Program Files\Git\bin\bash.exe"));
+    Save("ELKS_API_USERNAME", ReadText("46elks API-användarnamn", Existing("ELKS_API_USERNAME")));
+    Save("ELKS_API_PASSWORD", ReadSecret("46elks API-lösenord", Existing("ELKS_API_PASSWORD")));
+    Save("TEXTBEE_API_KEY", ReadSecret("TextBee API-nyckel", Existing("TEXTBEE_API_KEY")));
+    Save("TEXTBEE_DEVICE_ID", ReadText("TextBee enhets-ID", Existing("TEXTBEE_DEVICE_ID")));
+    Save("TEXTBEE_BASE_URL", ReadText("TextBee bas-URL", Existing("TEXTBEE_BASE_URL") ?? "https://api.textbee.dev/api/v1"));
+    Save("NTFY_SERVER_URL", ReadText("ntfy server-URL", Existing("NTFY_SERVER_URL") ?? "https://ntfy.sh"));
+    Save("NTFY_ACCESS_TOKEN", ReadSecret("ntfy access-token", Existing("NTFY_ACCESS_TOKEN")));
+
+    File.WriteAllText(environmentFile, JsonSerializer.Serialize(values, new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine);
+
+    Header("Steg 4 av 4 · Installerar");
     var powershell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe");
-    var arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{Path.Combine(project, "setup.ps1")}\"";
-    Console.WriteLine("Installerar beroenden och registrerar Windows-uppgifter...");
-    var result = RunProcess(powershell, arguments, environment, false);
+    var arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{setupScript}\"";
+    var result = RunProcess(powershell, arguments, values);
     if (result.ExitCode != 0) throw new InvalidOperationException(result.Output);
 
     Console.ForegroundColor = ConsoleColor.Green;
     Console.WriteLine("\nInstallation klar.");
     Console.ResetColor();
     Console.WriteLine("Öppna http://127.0.0.1:8787 för adminpanelen.");
-    Console.WriteLine("Fyll i users.local.json och konfigurera tjänstevariabler enligt README.md.");
-    Console.WriteLine();
+    Console.WriteLine("Fyll i users.local.json med Serviceresor-användare och mottagare.");
     Console.WriteLine("Tryck Enter för att avsluta.");
     Console.ReadLine();
 }

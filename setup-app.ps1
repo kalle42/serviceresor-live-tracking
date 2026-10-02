@@ -13,11 +13,18 @@ function Require-Command([string]$Name, [string]$InstallHint) {
     }
 }
 
-function Set-UserEnvironment([string]$Name, [string]$Value) {
-    if ($Value) {
-        [Environment]::SetEnvironmentVariable($Name, $Value, 'User')
-        Write-Host "Konfigurerade $Name"
+function Set-LocalEnvironmentValue([string]$Name, [string]$Value) {
+    if (-not $Value) { return }
+    $file = Join-Path $Project '.env.local.json'
+    $values = if (Test-Path -LiteralPath $file) {
+        Get-Content -Raw -LiteralPath $file | ConvertFrom-Json
+    } else {
+        [PSCustomObject]@{}
     }
+    $values | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force
+    $values | ConvertTo-Json | Set-Content -LiteralPath $file -Encoding UTF8
+    [Environment]::SetEnvironmentVariable($Name, $Value, 'Process')
+    Write-Host "Sparade $Name lokalt"
 }
 
 if (-not (Test-Path -LiteralPath $Project -PathType Container)) {
@@ -25,6 +32,15 @@ if (-not (Test-Path -LiteralPath $Project -PathType Container)) {
 }
 
 Set-Location -LiteralPath $Project
+$localEnvironmentFile = Join-Path $Project '.env.local.json'
+if (Test-Path -LiteralPath $localEnvironmentFile) {
+    $localValues = Get-Content -Raw -LiteralPath $localEnvironmentFile | ConvertFrom-Json
+    foreach ($property in $localValues.PSObject.Properties) {
+        if ($property.Value -and -not [Environment]::GetEnvironmentVariable($property.Name, 'Process')) {
+            [Environment]::SetEnvironmentVariable($property.Name, [string]$property.Value, 'Process')
+        }
+    }
+}
 Require-Command 'node.exe' 'https://nodejs.org/'
 Require-Command 'npm.cmd' 'https://nodejs.org/'
 Require-Command 'powershell.exe' 'Windows PowerShell'
@@ -63,17 +79,17 @@ if (-not $AdminPassword) {
 if ($AdminPassword.Length -lt 12) {
     throw 'Adminlösenordet måste ha minst 12 tecken.'
 }
-Set-UserEnvironment 'ADMIN_DASHBOARD_PASSWORD' $AdminPassword
+Set-LocalEnvironmentValue 'ADMIN_DASHBOARD_PASSWORD' $AdminPassword
 
 $gitBash = 'C:\Program Files\Git\bin\bash.exe'
 if (Test-Path -LiteralPath $gitBash) {
-    Set-UserEnvironment 'GIT_BASH_PATH' $gitBash
+    Set-LocalEnvironmentValue 'GIT_BASH_PATH' $gitBash
 }
 
 if (-not $SkipTasks) {
     & (Join-Path $Project 'install-scheduled-task.ps1') -Project $Project
     & (Join-Path $Project 'install-admin-task.ps1') -Project $Project
-    & (Join-Path $Project 'setup-tray.ps1') -Project $Project
+    & (Join-Path $Project 'setup-tray-app.ps1') -Project $Project
 }
 
 Write-Host ''

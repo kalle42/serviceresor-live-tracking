@@ -23,7 +23,7 @@ if (-not $hasMutex) {
 
 try {
     $process = Start-Process -FilePath $node `
-        -ArgumentList @('.\daily-trips.js', 'track', $UserId, $Url, $Time, $Minutes) `
+        -ArgumentList @('.\tracking-service.js', 'track', $UserId, $Url, $Time, $Minutes) `
         -WorkingDirectory $project `
         -RedirectStandardOutput (Join-Path $project "trip-$logTime.log") `
         -RedirectStandardError (Join-Path $project "trip-$logTime-error.log") `

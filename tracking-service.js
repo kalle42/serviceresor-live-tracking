@@ -5,6 +5,8 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const puppeteer = require('puppeteer-core');
 
+require('./local-env').loadLocalEnvironment(__dirname);
+
 const SERVICE_URL = 'https://minaserviceresor.goteborg.se';
 const SHARE_API_KEY = process.env.HERENOW_API_KEY || fs.readFileSync(
     path.join(os.homedir(), '.herenow', 'credentials'),

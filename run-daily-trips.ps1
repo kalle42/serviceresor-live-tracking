@@ -16,7 +16,7 @@ if (-not $hasMutex) {
 try {
     Set-Location -LiteralPath $project
     $process = Start-Process -FilePath $node `
-        -ArgumentList '.\daily-trips.js' `
+        -ArgumentList '.\tracking-service.js' `
         -WorkingDirectory $project `
         -RedirectStandardOutput (Join-Path $project 'daily-trips.log') `
         -RedirectStandardError (Join-Path $project 'daily-trips-error.log') `

@@ -3,10 +3,10 @@
     "private": true,
     "version": "1.0.0",
     "description": "Scheduled, encrypted live tracking for Serviceresor trips.",
-    "main": "daily-trips.js",
+    "main": "tracking-service.js",
     "scripts": {
-        "check": "node --check daily-trips.js && node --check session-map/app.js && node --check admin-server.js && node --check admin-dashboard/app.js",
-        "plan": "node daily-trips.js",
+        "check": "node --check tracking-service.js && node --check session-map/app.js && node --check admin-server.js && node --check admin-dashboard/app.js",
+        "plan": "node tracking-service.js",
         "admin": "node admin-server.js"
     },
     "dependencies": {

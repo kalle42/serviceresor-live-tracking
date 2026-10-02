@@ -1,6 +1,7 @@
 /.herenow/
 node_modules/
 users.local.json
+.env.local.json
 session-runtime/
 todays-trips.json
 admin-dashboard.log

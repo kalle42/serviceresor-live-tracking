@@ -28,7 +28,7 @@ if (Test-Path -LiteralPath (Join-Path $Project '.git')) {
     git clone --branch $Branch $Repository $Project
 }
 
-$installer = Join-Path $Project 'setup.ps1'
+$installer = Join-Path $Project 'setup-app.ps1'
 if (-not (Test-Path -LiteralPath $installer)) {
     throw "Installer was not found after deployment: $installer"
 }
