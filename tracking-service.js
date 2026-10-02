@@ -409,6 +409,10 @@ async function trackTrip(trip, user) {
 
     async function writeSharedData(data) {
         writeQueue = writeQueue.catch(() => {}).then(async () => {
+            const sharedData = {
+                ...data,
+                vehicle_number: vehicleNumber || data.vehicle_number || ''
+            };
             for (let attempt = 1; attempt <= 3; attempt += 1) {
                 const endpoint = recordId
                     ? `https://here.now/api/v1/publishes/${session.slug}/data/positions/${recordId}`
@@ -419,7 +423,7 @@ async function trackTrip(trip, user) {
                         Authorization: `Bearer ${SHARE_API_KEY}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(encryptPayload(data, sessionKey))
+                    body: JSON.stringify(encryptPayload(sharedData, sessionKey))
                 });
                 if (response.ok) {
                     recordId = (await response.json()).record.id;
