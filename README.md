@@ -27,6 +27,8 @@ Kör den från projektmappen:
 
 Guiden kontrollerar kraven, frågar efter lokalt adminlösenord och lokala värden för here.now, 46elks, TextBee och ntfy. Hemliga värden maskeras och sparas i `.env.local.json`, som ignoreras av Git. Valfria integrationer kan lämnas tomma.
 
+Git Bash hittas automatiskt från Git för Windows. `publish.sh` hittas automatiskt i vanliga skill-mappar. Om den saknas installerar guiden here.now-skillen med `npx` och försöker igen. Manuell sökväg efterfrågas endast om automatiken misslyckas.
+
 Serviceresor-användarnas personnummer och lösenord lagras separat i `users.local.json`.
 
 ## Snabb deploy

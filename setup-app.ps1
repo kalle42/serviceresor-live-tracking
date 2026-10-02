@@ -45,6 +45,8 @@ Require-Command 'node.exe' 'https://nodejs.org/'
 Require-Command 'npm.cmd' 'https://nodejs.org/'
 Require-Command 'powershell.exe' 'Windows PowerShell'
 Require-Command 'dotnet.exe' 'https://dotnet.microsoft.com/download'
+Require-Command 'git.exe' 'https://git-scm.com/download/win'
+Require-Command 'jq.exe' 'winget install jqlang.jq'
 
 $chromePaths = @(
     'C:\Program Files\Google\Chrome\Application\chrome.exe',
@@ -69,7 +71,11 @@ if (-not (Test-Path -LiteralPath 'node_modules')) {
 }
 
 Write-Host 'Bygger tray-ikon...'
-dotnet publish (Join-Path $Project 'tray\ServiceresorTray.csproj') -c Release -r win-x64 --self-contained true
+$trayInstallDir = Join-Path $env:LOCALAPPDATA 'Serviceresor'
+$trayArtifacts = Join-Path $env:TEMP 'ServiceresorTrayArtifacts'
+if (-not (Test-Path -LiteralPath $env:LOCALAPPDATA)) { throw 'LOCALAPPDATA hittades inte.' }
+New-Item -ItemType Directory -Path $trayInstallDir -Force | Out-Null
+dotnet publish (Join-Path $Project 'tray\ServiceresorTray.csproj') -c Release -r win-x64 --self-contained true --artifacts-path $trayArtifacts -o $trayInstallDir
 
 if (-not $AdminPassword) { $AdminPassword = $env:ADMIN_DASHBOARD_PASSWORD }
 if (-not $AdminPassword) {
@@ -81,10 +87,29 @@ if ($AdminPassword.Length -lt 12) {
 }
 Set-LocalEnvironmentValue 'ADMIN_DASHBOARD_PASSWORD' $AdminPassword
 
-$gitBash = 'C:\Program Files\Git\bin\bash.exe'
-if (Test-Path -LiteralPath $gitBash) {
-    Set-LocalEnvironmentValue 'GIT_BASH_PATH' $gitBash
+$gitBashCandidates = @(
+    $env:GIT_BASH_PATH,
+    'C:\Program Files\Git\bin\bash.exe',
+    'C:\Program Files (x86)\Git\bin\bash.exe'
+)
+$gitBash = $gitBashCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
+if (-not $gitBash) { throw 'Git Bash kunde inte hittas automatiskt.' }
+Set-LocalEnvironmentValue 'GIT_BASH_PATH' $gitBash
+
+$publisherCandidates = @(
+    $env:HERENOW_PUBLISH_SCRIPT,
+    (Join-Path $HOME '.agents\skills\here-now\scripts\publish.sh'),
+    (Join-Path $HOME '.claude\skills\here-now\scripts\publish.sh'),
+    (Join-Path $HOME '.config\opencode\skills\here-now\scripts\publish.sh')
+)
+$publisher = $publisherCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
+if (-not $publisher) {
+    Write-Host 'Installerar here.now-skillen automatiskt...'
+    npx.cmd --yes skills add heredotnow/skill --skill here-now -g
+    $publisher = $publisherCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
 }
+if (-not $publisher) { throw 'publish.sh kunde inte hittas automatiskt.' }
+Set-LocalEnvironmentValue 'HERENOW_PUBLISH_SCRIPT' $publisher
 
 if (-not $SkipTasks) {
     & (Join-Path $Project 'install-scheduled-task.ps1') -Project $Project
