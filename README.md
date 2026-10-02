@@ -1,63 +1,24 @@
 # Serviceresor Live Tracking
 
-App för Windows och Linux som läser dagens Serviceresor, kontrollerar avbokningar och skapar krypterade livekartor. Kartlänken kan skickas via 46elks, TextBee och/eller ntfy. Kartan stängs efter 60 minuter.
+Containerized service that reads today's Serviceresor trips, checks for cancellations, and creates encrypted live maps. Map links can be sent via 46elks, TextBee, and/or ntfy. Maps close after 60 minutes.
 
-## Windows-krav
+## Requirements
 
-- Windows 10 eller senare
-- Git för Windows
-- Node.js LTS
-- .NET 8 SDK
-- Google Chrome
+- Docker Engine with Compose plugin
+- A Serviceresor account for each user
 
-## Installera med exe-guiden
-
-Bygg guiden:
-
-```powershell
-dotnet publish .\installer\ServiceresorInstaller.csproj -c Release -r win-x64 --self-contained true
-```
-
-Kör den från projektmappen:
-
-```powershell
-.\installer\bin\Release\net8.0\win-x64\publish\ServiceresorInstaller.exe
-```
-
-Guiden kontrollerar kraven, frågar efter lokalt adminlösenord och lokala värden för here.now, 46elks, TextBee och ntfy. Hemliga värden maskeras och sparas i `.env.local.json`, som ignoreras av Git. Valfria integrationer kan lämnas tomma.
-
-Serviceresor-användarnas personnummer och lösenord lagras separat i `users.local.json`.
-
-## Snabb deploy
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/kalle42/serviceresor-live-tracking/development/deploy-app.ps1).Content))
-```
-
-I en befintlig mapp:
-
-```powershell
-git pull --ff-only origin development
-.\setup-app.ps1
-```
-
-Kör `setup-app.ps1 -SkipTasks` om schemalagda uppgifter inte ska registreras.
-
-## Linux med Docker
-
-Docker-versionen innehåller Chromium och en Linux-daemon som ersätter Windows Task Scheduler. Docker Engine med Compose-plugin krävs.
+## Quick start
 
 ```bash
-git clone --branch development https://github.com/kalle42/serviceresor-live-tracking.git
+git clone --branch feature/installer-improvements https://github.com/kalle42/serviceresor-live-tracking.git
 cd serviceresor-live-tracking
 cp users.example.json users.local.json
 cp .env.docker.example .env.docker
 ```
 
-Fyll i riktiga Serviceresor-uppgifter och mottagare i `users.local.json`. Sätt ett adminlösenord med minst 12 tecken och en here.now API-nyckel i `.env.docker`. 46elks, TextBee och ntfy är valfria.
+Edit `users.local.json` with real Serviceresor credentials and notification recipients. Set an admin password (minimum 12 characters) and a here.now API key in `.env.docker`. 46elks, TextBee, and ntfy are optional.
 
-Validera konfigurationen och starta sedan containern:
+Validate and start:
 
 ```bash
 docker compose config
@@ -66,86 +27,75 @@ docker compose ps
 docker compose logs -f
 ```
 
-När `docker compose ps` visar `healthy` finns adminpanelen på `http://127.0.0.1:8787`. Logga in som `admin` med lösenordet från `.env.docker`. Porten binds bara till värddatorns localhost.
+When `docker compose ps` shows `healthy`, the admin dashboard is available at `http://127.0.0.1:8787`. Log in as `admin` with the password from `.env.docker`. The port is bound to localhost only.
 
-Starta om efter konfigurationsändringar och stoppa tjänsten med:
+Restart after configuration changes:
 
 ```bash
 docker compose up -d --force-recreate
+```
+
+Stop the service:
+
+```bash
 docker compose down
 ```
 
-Planer, sessioner och processregister sparas i Docker-volymen `serviceresor-data`. `users.local.json` monteras från projektmappen så att användare kan redigeras i adminpanelen. `.env.docker` och användarfilen byggs inte in i imagen och ignoreras av Git.
+## Configuration
 
-Vid felsökning:
+### `users.local.json`
+
+Contains Serviceresor usernames, personnummer, passwords, and notification targets. Copied from `users.example.json` on first setup. Editable from the admin dashboard. Mounted into the container from the project directory.
+
+### `.env.docker`
+
+Environment variables for the container. Copied from `.env.docker.example`. Not built into the image.
+
+| Variable | Required | Description |
+|---|---|---|
+| `ADMIN_DASHBOARD_PASSWORD` | Yes | Minimum 12 characters |
+| `HERENOW_API_KEY` | Yes | here.now API key |
+| `ELKS_API_USERNAME` | No | 46elks API username |
+| `ELKS_API_PASSWORD` | No | 46elks API password |
+| `TEXTBEE_API_KEY` | No | TextBee API key |
+| `TEXTBEE_DEVICE_ID` | No | TextBee device ID |
+| `TEXTBEE_BASE_URL` | No | TextBee API base URL |
+| `NTFY_SERVER_URL` | No | ntfy server URL |
+| `NTFY_ACCESS_TOKEN` | No | ntfy access token |
+
+## Data and persistence
+
+Plans, sessions, and process registers are stored in the Docker volume `serviceresor-data`. The volume survives `docker compose down`; use `docker compose down -v` to also remove saved data.
+
+## Troubleshooting
 
 ```bash
 docker compose logs --tail 200 serviceresor
 docker compose restart serviceresor
 ```
 
-`docker compose down -v` tar även bort sparade planer och sessionsdata.
+## Architecture
 
-## Linux utan Docker
+The container runs two Node.js processes under `dumb-init`:
 
-Installera Node.js, Chromium och npm-paketen. Sätt minst `CHROME_EXECUTABLE`, `TRACKER_HEADLESS=true`, `DATA_DIR`, `USERS_FILE`, `ADMIN_DASHBOARD_PASSWORD` och `HERENOW_API_KEY`. Starta sedan:
+- **admin-server.js** - HTTP dashboard on port 8787 with basic authentication
+- **linux-daemon.js** - Daily planner that schedules trip tracking at 01:00 and spawns tracker processes 10 minutes before departure
 
-```bash
-npm ci
-npm run linux
-```
+Chromium is bundled in the image for headless browser automation. Map sessions are published to here.now with encrypted location data. The container runs as a non-root user with dropped capabilities and read-only tmpfs.
 
-Starta adminservern separat med `npm run admin`.
+## Automatic scheduling
 
-## Lokal konfiguration
+The planner runs at 01:00 and:
 
-```powershell
-Copy-Item .\users.example.json .\users.local.json
-Copy-Item .\.env.example.json .\.env.local.json
-```
+- Reads trips for today
+- Checks for cancellation one hour before departure
+- Starts tracking ten minutes before departure
+- Monitors vehicle numbers continuously
+- Sends the map link via configured channels
+- Closes the map after 60 minutes
 
-Fyll i Serviceresor-uppgifter och mottagare i `users.local.json`. Fyll i de integrationer som används i `.env.local.json`. Tracker- och adminprocesserna läser filerna automatiskt. Värdena kopieras inte till Windows användarmiljö.
+## Security
 
-## Adminpanel och tray
+Never commit `.env.docker`, `users.local.json`, `.herenow`, session data, logs, or API keys. Rotate credentials that have been exposed.
 
-Starta adminpanelen manuellt:
-
-```powershell
-npm run admin
-```
-
-Öppna `http://127.0.0.1:8787` och logga in som `admin`.
-
-Tray-appen installeras i `%LOCALAPPDATA%\Serviceresor` och startar via användarens Startup-mapp. Dubbelklick öppnar adminpanelen. Högerklick visar öppna, starta om och avsluta.
-
-Manuell tray-installation:
-
-```powershell
-dotnet publish .\tray\ServiceresorTray.csproj -c Release -r win-x64 --self-contained true --artifacts-path "$env:TEMP\ServiceresorTrayArtifacts" -o "$env:LOCALAPPDATA\Serviceresor"
-.\setup-tray-app.ps1
-```
-
-## Automatik
-
-Planeraren körs klockan `01:00` och:
-
-- Läser resor under `Idag`.
-- Kontrollerar avbokning en timme före avgång.
-- Startar tracking tio minuter före avgång.
-- Kontrollerar fordonsnummer löpande.
-- Skickar kartlänken via konfigurerade kanaler.
-- Avslutar kartan efter 60 minuter.
-
-## Tester
-
-```powershell
-npm install
-npm run check
-npm audit
-```
-
-## Säkerhet
-
-Commit:a aldrig `.env.local.json`, `.env.docker`, `users.local.json`, `.herenow`, `session-runtime`, loggar, screenshots eller API-nycklar. Rotera credentials som har exponerats i chat eller Git.
-
-Kartorna använder OpenStreetMap med synlig attribution, normalt browser-cachebeteende, ingen tile-prefetch och ingen offline-nedladdning. Se [OpenStreetMap Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/) innan kartlagret ändras.
+Maps use OpenStreetMap with visible attribution, normal browser caching, no tile prefetch, and no offline downloads. See the [OpenStreetMap Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/) before changing the tile layer.

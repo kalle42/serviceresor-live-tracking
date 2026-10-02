@@ -127,22 +127,18 @@ async function loginWithRetry(page, user, attempts = 3) {
 }
 
 async function launchBrowser() {
-    const linux = process.platform === 'linux';
-    const executablePath = process.env.CHROME_EXECUTABLE || (linux
-        ? '/usr/bin/chromium'
-        : 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe');
-    const headless = process.env.TRACKER_HEADLESS
-        ? process.env.TRACKER_HEADLESS !== 'false'
-        : linux;
+    const executablePath = process.env.CHROME_EXECUTABLE || '/usr/bin/chromium-browser';
     return puppeteer.launch({
-        headless,
+        headless: process.env.TRACKER_HEADLESS !== 'false',
         executablePath,
         args: [
             '--disable-backgrounding-occluded-windows',
             '--disable-renderer-backgrounding',
             '--disable-gpu',
             '--no-first-run',
-            ...(linux ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] : []),
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
             `--user-data-dir=${fs.mkdtempSync(path.join(os.tmpdir(), 'daily-trips-'))}`
         ]
     });
