@@ -2,6 +2,10 @@ const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+
+const execFileAsync = promisify(execFile);
 
 require('./local-env').loadLocalEnvironment(__dirname);
 const ROOT = __dirname;
@@ -132,21 +136,36 @@ function activeSessions() {
     }
 }
 
+async function powershellJson(script) {
+    const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+        cwd: ROOT, windowsHide: true, maxBuffer: 1024 * 1024
+    });
+    try { return JSON.parse(stdout); } catch { return []; }
+}
+
 async function taskState() {
-    return [{ name: 'Daily planner', state: 'Running', nextRun: null, lastRun: null, lastResult: 0 }];
+    if (process.platform !== 'win32') {
+        return [{ name: 'Linux daily planner', state: 'Running', nextRun: null, lastRun: null, lastResult: 0 }];
+    }
+    const result = await powershellJson(`@(Get-ScheduledTask | Where-Object { $_.TaskName -eq 'Serviceresor daily planner' -or $_.TaskName -like 'Fardtjanst-trip-*' } | ForEach-Object { $info = $_ | Get-ScheduledTaskInfo; [PSCustomObject]@{ name=$_.TaskName; state=$_.State.ToString(); nextRun=$info.NextRunTime; lastRun=$info.LastRunTime; lastResult=$info.LastTaskResult } }) | ConvertTo-Json -Depth 4`);
+    return Array.isArray(result) ? result : [result];
 }
 
 async function processState() {
-    const trackers = (() => {
-        try {
-            return fs.readdirSync(PROCESS_RUNTIME_DIR)
-                .filter((file) => file.endsWith('.json'))
-                .map((file) => readJson(path.join(PROCESS_RUNTIME_DIR, file), null))
-                .filter(Boolean)
-                .map((tracker) => ({ id: tracker.pid, command: `tracking-service.js ${tracker.userId} ${tracker.tripTime}`, created: tracker.startedAt }));
-        } catch { return []; }
-    })();
-    return [{ id: process.pid, command: 'admin-server.js', created: null }, ...trackers];
+    if (process.platform !== 'win32') {
+        const trackers = (() => {
+            try {
+                return fs.readdirSync(PROCESS_RUNTIME_DIR)
+                    .filter((file) => file.endsWith('.json'))
+                    .map((file) => readJson(path.join(PROCESS_RUNTIME_DIR, file), null))
+                    .filter(Boolean)
+                    .map((tracker) => ({ id: tracker.pid, command: `tracking-service.js ${tracker.userId} ${tracker.tripTime}`, created: tracker.startedAt }));
+            } catch { return []; }
+        })();
+        return [{ id: process.pid, command: 'admin-server.js', created: null }, ...trackers];
+    }
+    const result = await powershellJson(`@(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.CommandLine -match 'tracking-service\\.js|admin-server\\.js' } | ForEach-Object { [PSCustomObject]@{ id=$_.ProcessId; command=$_.CommandLine; created=$_.CreationDate } }) | ConvertTo-Json -Depth 3`);
+    return Array.isArray(result) ? result : [result];
 }
 
 function environmentState() {
@@ -184,6 +203,13 @@ async function overview() {
 }
 
 function launchPlanner() {
+    if (process.platform === 'win32') {
+        const child = require('child_process').spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(ROOT, 'run-daily-trips.ps1')], {
+            cwd: ROOT, detached: true, windowsHide: true, stdio: 'ignore'
+        });
+        child.unref();
+        return;
+    }
     fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(path.join(DATA_DIR, 'replan.trigger'), new Date().toISOString());
 }
