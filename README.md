@@ -1,11 +1,11 @@
-﻿# Serviceresor Live Tracking
+# Serviceresor Live Tracking
 
-Windows-app som l├ñser dagens Serviceresor, kontrollerar avbokningar och skapar krypterade livekartor. Kartl├ñnken kan skickas via 46elks, TextBee och/eller ntfy. Kartan st├ñngs efter 60 minuter.
+Windows-app som läser dagens Serviceresor, kontrollerar avbokningar och skapar krypterade livekartor. Kartlänken kan skickas via 46elks, TextBee och/eller ntfy. Kartan stängs efter 60 minuter.
 
 ## Krav
 
 - Windows 10 eller senare
-- Git f├╢r Windows och Git Bash
+- Git för Windows och Git Bash
 - Node.js LTS
 - .NET 8 SDK
 - Google Chrome
@@ -19,17 +19,17 @@ Bygg guiden:
 dotnet publish .\installer\ServiceresorInstaller.csproj -c Release -r win-x64 --self-contained true
 ```
 
-K├╢r den fr├Ñn projektmappen:
+Kör den från projektmappen:
 
 ```powershell
 .\installer\bin\Release\net8.0\win-x64\publish\ServiceresorInstaller.exe
 ```
 
-Guiden kontrollerar kraven, fr├Ñgar efter lokalt adminl├╢senord och lokala v├ñrden f├╢r here.now, 46elks, TextBee och ntfy. Hemliga v├ñrden maskeras och sparas i `.env.local.json`, som ignoreras av Git. Valfria integrationer kan l├ñmnas tomma.
+Guiden kontrollerar kraven, frågar efter lokalt adminlösenord och lokala värden för here.now, 46elks, TextBee och ntfy. Hemliga värden maskeras och sparas i `.env.local.json`, som ignoreras av Git. Valfria integrationer kan lämnas tomma.
 
-Git Bash hittas automatiskt fr├Ñn Git f├╢r Windows. `publish.sh` hittas automatiskt i vanliga skill-mappar. Om den saknas installerar guiden here.now-skillen med `npx` och f├╢rs├╢ker igen. Manuell s├╢kv├ñg efterfr├Ñgas endast om automatiken misslyckas.
+Git Bash hittas automatiskt från Git för Windows. `publish.sh` hittas automatiskt i vanliga skill-mappar. Om den saknas installerar guiden here.now-skillen med `npx` och försöker igen. Manuell sökväg efterfrågas endast om automatiken misslyckas.
 
-Serviceresor-anv├ñndarnas personnummer och l├╢senord lagras separat i `users.local.json`.
+Serviceresor-användarnas personnummer och lösenord lagras separat i `users.local.json`.
 
 ## Snabb deploy
 
@@ -45,7 +45,7 @@ git pull --ff-only origin development
 .\setup-app.ps1
 ```
 
-K├╢r `setup-app.ps1 -SkipTasks` om schemalagda uppgifter inte ska registreras.
+Kör `setup-app.ps1 -SkipTasks` om schemalagda uppgifter inte ska registreras.
 
 ## Lokal konfiguration
 
@@ -54,7 +54,7 @@ Copy-Item .\users.example.json .\users.local.json
 Copy-Item .\.env.example.json .\.env.local.json
 ```
 
-Fyll i Serviceresor-uppgifter och mottagare i `users.local.json`. Fyll i de integrationer som anv├ñnds i `.env.local.json`. Tracker- och adminprocesserna l├ñser filerna automatiskt. V├ñrdena kopieras inte till Windows anv├ñndarmilj├╢.
+Fyll i Serviceresor-uppgifter och mottagare i `users.local.json`. Fyll i de integrationer som används i `.env.local.json`. Tracker- och adminprocesserna läser filerna automatiskt. Värdena kopieras inte till Windows användarmiljö.
 
 ## Adminpanel och tray
 
@@ -64,9 +64,9 @@ Starta adminpanelen manuellt:
 npm run admin
 ```
 
-├ûppna `http://127.0.0.1:8787` och logga in som `admin`.
+Öppna `http://127.0.0.1:8787` och logga in som `admin`.
 
-Tray-appen installeras i `%LOCALAPPDATA%\Serviceresor` och startar via anv├ñndarens Startup-mapp. Dubbelklick ├╢ppnar adminpanelen. H├╢gerklick visar ├╢ppna, starta om och avsluta.
+Tray-appen installeras i `%LOCALAPPDATA%\Serviceresor` och startar via användarens Startup-mapp. Dubbelklick öppnar adminpanelen. Högerklick visar öppna, starta om och avsluta.
 
 Manuell tray-installation:
 
@@ -77,13 +77,13 @@ dotnet publish .\tray\ServiceresorTray.csproj -c Release -r win-x64 --self-conta
 
 ## Automatik
 
-Planeraren k├╢rs klockan `01:00` och:
+Planeraren körs klockan `01:00` och:
 
-- L├ñser resor under `Idag`.
-- Kontrollerar avbokning en timme f├╢re avg├Ñng.
-- Startar tracking tio minuter f├╢re avg├Ñng.
-- Kontrollerar fordonsnummer l├╢pande.
-- Skickar kartl├ñnken via konfigurerade kanaler.
+- Läser resor under `Idag`.
+- Kontrollerar avbokning en timme före avgång.
+- Startar tracking tio minuter före avgång.
+- Kontrollerar fordonsnummer löpande.
+- Skickar kartlänken via konfigurerade kanaler.
 - Avslutar kartan efter 60 minuter.
 
 ## Tester
@@ -94,8 +94,8 @@ npm run check
 npm audit
 ```
 
-## S├ñkerhet
+## Säkerhet
 
 Commit:a aldrig `.env.local.json`, `users.local.json`, `.herenow`, `session-runtime`, loggar, screenshots eller API-nycklar. Rotera credentials som har exponerats i chat eller Git.
 
-Kartorna anv├ñnder OpenStreetMap med synlig attribution, normalt browser-cachebeteende, ingen tile-prefetch och ingen offline-nedladdning. Se [OpenStreetMap Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/) innan kartlagret ├ñndras.
+Kartorna använder OpenStreetMap med synlig attribution, normalt browser-cachebeteende, ingen tile-prefetch och ingen offline-nedladdning. Se [OpenStreetMap Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/) innan kartlagret ändras.
