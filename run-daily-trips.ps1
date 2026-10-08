@@ -43,7 +43,7 @@ try {
         $arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runner`" -UserId `"$($userPlan.userId)`" -Url `"$($trip.url)`" -Time `"$($trip.time)`" -Minutes $($trip.minutes)"
         $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
         $trigger = New-ScheduledTaskTrigger -Once -At $startAt
-        $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Hours 3)
+        $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -DisallowStartIfOnBatteries:$false -StopIfGoingOnBatteries:$false -ExecutionTimeLimit (New-TimeSpan -Hours 3)
         $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description "Tracks the $($trip.time) trip from ten minutes before departure." -Force | Out-Null
 
@@ -54,7 +54,7 @@ try {
             $checkArguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$checkRunner`" -UserId `"$($userPlan.userId)`" -Url `"$($trip.url)`" -Time `"$($trip.time)`" -TrackingTaskName `"$taskName`""
             $checkAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $checkArguments
             $checkTrigger = New-ScheduledTaskTrigger -Once -At $checkAt
-            $checkSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
+            $checkSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -DisallowStartIfOnBatteries:$false -StopIfGoingOnBatteries:$false -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
             Register-ScheduledTask -TaskName $checkTaskName -Action $checkAction -Trigger $checkTrigger -Settings $checkSettings -Principal $principal -Description "Checks whether the $($trip.time) trip is still booked one hour before departure." -Force | Out-Null
         }
       }
