@@ -8,6 +8,9 @@ admin-dashboard.log
 admin-dashboard-test*
 installer/bin/
 installer/obj/
+installer/Output/
+# jq hämtas vid bygget av fetch-jq.ps1 och får inget filnamnstillägg.
+installer/here-now/bin/jq
 tray/bin/
 tray/obj/
 *.log

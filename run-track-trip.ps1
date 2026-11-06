@@ -6,7 +6,8 @@ param(
 )
 
 $project = $PSScriptRoot
-$node = 'C:\Program Files\nodejs\node.exe'
+. (Join-Path $PSScriptRoot 'find-node.ps1')
+$node = Find-NodeExe
 $logTime = $Time.Replace(':', '')
 $mutex = New-Object System.Threading.Mutex($false, "FardtjanstTrip$logTime")
 

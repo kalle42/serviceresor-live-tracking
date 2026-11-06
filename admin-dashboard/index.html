@@ -84,9 +84,10 @@
                     <div class="table-wrap"><table><thead><tr><th>Uppgift</th><th>Status</th><th>Nästa</th><th>Resultat</th></tr></thead><tbody id="task-list"></tbody></table></div>
                 </section>
 
-                <section class="panel system-panel">
-                    <div class="panel-heading"><div><p class="section-number">06</p><h2>Systemmiljö</h2></div></div>
-                    <div id="environment-list" class="environment-list"></div>
+                <section class="panel system-panel" id="settings">
+                    <div class="panel-heading"><div><p class="section-number">06</p><h2>API &amp; nycklar</h2></div><button class="button secondary" id="settings-save">Spara</button></div>
+                    <p class="settings-hint">Lämna ett fält tomt för att behålla sparat värde. Rensa och spara för att ta bort. Ändringar gäller nästa resa direkt; adminpanelen själv läser om vid varje anrop.</p>
+                    <div id="settings-list" class="settings-list"><span class="loading-line">Läser inställningar...</span></div>
                 </section>
 
                 <section class="panel logs-panel" id="logs">

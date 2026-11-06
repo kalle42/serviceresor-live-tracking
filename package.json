@@ -1,5 +1,5 @@
 {
-    "name": "serviceresor-live-tracking",
+    "name": "färdtjänst",
     "private": true,
     "version": "1.0.0",
     "description": "Scheduled, encrypted live tracking for Serviceresor trips.",

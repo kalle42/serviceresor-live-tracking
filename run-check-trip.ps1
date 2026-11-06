@@ -6,7 +6,8 @@ param(
 )
 
 $project = $PSScriptRoot
-$node = 'C:\Program Files\nodejs\node.exe'
+. (Join-Path $PSScriptRoot 'find-node.ps1')
+$node = Find-NodeExe
 $logTime = $Time.Replace(':', '')
 $process = Start-Process -FilePath $node `
     -ArgumentList @('.\tracking-service.js', 'check', $UserId, $Url, $Time) `

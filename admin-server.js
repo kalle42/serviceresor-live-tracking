@@ -5,12 +5,14 @@ const path = require('path');
 const { execFile, spawn } = require('child_process');
 const { promisify } = require('util');
 
-require('./local-env').loadLocalEnvironment(__dirname);
+const { loadLocalEnvironment, resolvePublishScript, resolveGitBash } = require('./local-env');
+loadLocalEnvironment(__dirname);
 
 const execFileAsync = promisify(execFile);
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'admin-dashboard');
 const USERS_FILE = path.join(ROOT, 'users.local.json');
+const LOCAL_ENV_FILE = path.join(ROOT, '.env.local.json');
 const SESSION_RUNTIME_DIR = path.join(ROOT, 'session-runtime');
 const HOST = process.env.ADMIN_DASHBOARD_HOST || '127.0.0.1';
 const PORT = Number(process.env.ADMIN_DASHBOARD_PORT || 8787);
@@ -151,17 +153,173 @@ async function processState() {
     return Array.isArray(result) ? result : [result];
 }
 
+// Fälten som går att redigera från panelen. ADMIN_DASHBOARD_PASSWORD står medvetet
+// utanför: att byta lösenordet som skyddar sidan inifrån sidan vore att låsa sig ute.
+const SETTING_FIELDS = [
+    { name: 'HERENOW_API_KEY', label: 'here.now API-nyckel', secret: true, group: 'Kartpublicering' },
+    { name: 'ELKS_API_USERNAME', label: '46elks användarnamn', secret: true, group: 'SMS via 46elks' },
+    { name: 'ELKS_API_PASSWORD', label: '46elks lösenord', secret: true, group: 'SMS via 46elks' },
+    { name: 'TEXTBEE_API_KEY', label: 'TextBee API-nyckel', secret: true, group: 'SMS via TextBee' },
+    { name: 'TEXTBEE_DEVICE_ID', label: 'TextBee enhets-id', secret: false, group: 'SMS via TextBee' },
+    { name: 'TEXTBEE_BASE_URL', label: 'TextBee bas-URL', secret: false, group: 'SMS via TextBee' },
+    { name: 'NTFY_SERVER_URL', label: 'ntfy server', secret: false, group: 'ntfy' },
+    { name: 'NTFY_ACCESS_TOKEN', label: 'ntfy åtkomsttoken', secret: true, group: 'ntfy' }
+];
+const SETTING_NAMES = new Set(SETTING_FIELDS.map((field) => field.name));
+
+function readLocalEnv() {
+    try {
+        // trimStart tar bort BOM: setup-app.ps1 skriver filen som UTF8 med BOM.
+        return JSON.parse(fs.readFileSync(LOCAL_ENV_FILE, 'utf8').trimStart());
+    } catch {
+        return {};
+    }
+}
+
+// Skriv via tempfil och rename: panelen och spårningen kan läsa filen samtidigt,
+// och en avbruten skrivning ska aldrig lämna halv JSON som gör miljön oläsbar.
+function writeLocalEnv(values) {
+    const temporary = `${LOCAL_ENV_FILE}.tmp`;
+    fs.writeFileSync(temporary, `${JSON.stringify(values, null, 4)}\n`);
+    fs.renameSync(temporary, LOCAL_ENV_FILE);
+}
+
+function maskSecret(value) {
+    if (!value) return '';
+    return value.length <= 4 ? '••••' : `••••${value.slice(-4)}`;
+}
+
+function settingsState() {
+    const file = readLocalEnv();
+    return SETTING_FIELDS.map((field) => {
+        const saved = file[field.name] || '';
+        const active = process.env[field.name] || '';
+        // local-env.js rör inte ett värde som redan finns i processmiljön. Skiljer sig
+        // filen från det körande värdet vinner alltså en maskinnivåvariabel, och en
+        // ändring i panelen får ingen effekt förrän den tas bort.
+        const overridden = Boolean(saved) && Boolean(active) && saved !== active;
+        return {
+            name: field.name,
+            label: field.label,
+            group: field.group,
+            secret: field.secret,
+            configured: Boolean(active),
+            overridden,
+            value: field.secret ? undefined : saved,
+            masked: field.secret ? maskSecret(saved) : undefined
+        };
+    });
+}
+
+function saveSettings(input) {
+    const values = input && typeof input.values === 'object' && input.values ? input.values : {};
+    const remove = Array.isArray(input?.remove) ? input.remove : [];
+    if (!Object.keys(values).length && !remove.length) throw new Error('Inga inställningar skickades.');
+    // Validera allt innan något skrivs: ett fel mitt i loopen ska inte lämna
+    // filen halvskriven med några fält ändrade och resten orörda.
+    for (const name of Object.keys(values)) {
+        if (!SETTING_NAMES.has(name)) throw new Error(`Okänt fält: ${name}.`);
+    }
+    for (const name of remove) {
+        if (!SETTING_NAMES.has(name)) throw new Error(`Okänt fält: ${name}.`);
+    }
+    const file = readLocalEnv();
+    const changed = [];
+    for (const [name, raw] of Object.entries(values)) {
+        const value = typeof raw === 'string' ? raw.trim() : '';
+        if (!value) continue;
+        file[name] = value;
+        process.env[name] = value;
+        changed.push(name);
+    }
+    for (const name of remove) {
+        delete file[name];
+        delete process.env[name];
+        changed.push(name);
+    }
+    if (!changed.length) throw new Error('Inga ändringar att spara.');
+    writeLocalEnv(file);
+    return changed;
+}
+
+// Samma uppslagning som tracking-service.js använder, så att "Stäng alla" fungerar
+// även när nyckeln angetts i adminpanelen i stället för i credentials-filen.
+function hereNowKey() {
+    const fromEnvironment = process.env.HERENOW_API_KEY;
+    if (fromEnvironment) return fromEnvironment;
+    try {
+        const key = fs.readFileSync(path.join(os.homedir(), '.herenow', 'credentials'), 'utf8').trim();
+        if (key) return key;
+    } catch {
+        // Filen finns inte; felet nedan förklarar vad som ska göras.
+    }
+    throw new Error('here.now API-nyckel saknas. Ange den under API & nycklar.');
+}
+
+// Verifierar en kanal utan att skicka något till en mottagare. ntfy är undantaget:
+// där finns ingen läsbar resurs att fråga, så ett test är en riktig notis.
+async function testChannel(channel) {
+    if (channel === 'herenow') {
+        const key = hereNowKey();
+        const response = await fetch('https://here.now/api/v1/publishes?limit=1', {
+            headers: { Authorization: `Bearer ${key}` }
+        });
+        if (!response.ok) throw new Error(`here.now svarade ${response.status}.`);
+        return 'here.now-nyckeln fungerar.';
+    }
+    if (channel === 'elks') {
+        const username = process.env.ELKS_API_USERNAME;
+        const password = process.env.ELKS_API_PASSWORD;
+        if (!username || !password) throw new Error('46elks saknar användarnamn eller lösenord.');
+        const response = await fetch('https://api.46elks.com/a1/me', {
+            headers: { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` }
+        });
+        if (!response.ok) throw new Error(`46elks svarade ${response.status}.`);
+        return '46elks-uppgifterna fungerar.';
+    }
+    if (channel === 'textbee') {
+        const key = process.env.TEXTBEE_API_KEY;
+        if (!key) throw new Error('TextBee saknar API-nyckel.');
+        const baseUrl = (process.env.TEXTBEE_BASE_URL || 'https://api.textbee.dev/api/v1').replace(/\/$/, '');
+        const response = await fetch(`${baseUrl}/gateway/devices`, { headers: { 'x-api-key': key } });
+        if (!response.ok) throw new Error(`TextBee svarade ${response.status}.`);
+        return 'TextBee-nyckeln fungerar.';
+    }
+    if (channel === 'ntfy') {
+        const topic = readUsers().users.flatMap((user) => user.ntfyTopics || [])[0];
+        if (!topic) throw new Error('Ingen ntfy-topic är konfigurerad för någon användare.');
+        const server = (process.env.NTFY_SERVER_URL || 'https://ntfy.sh').replace(/\/$/, '');
+        const headers = { Title: 'Serviceresor test', Priority: 'default', Tags: 'white_check_mark' };
+        if (process.env.NTFY_ACCESS_TOKEN) headers.Authorization = `Bearer ${process.env.NTFY_ACCESS_TOKEN}`;
+        const response = await fetch(`${server}/${encodeURIComponent(topic)}`, {
+            method: 'POST',
+            headers,
+            body: `Testnotis från adminpanelen ${new Date().toLocaleString('sv-SE')}.`
+        });
+        if (!response.ok) throw new Error(`ntfy svarade ${response.status}.`);
+        return `Testnotis skickad till ${topic}.`;
+    }
+    throw new Error(`Okänd kanal: ${channel}.`);
+}
+
+function canResolve(resolver) {
+    try { resolver(); return true; } catch { return false; }
+}
+
 function environmentState() {
     const hereNowFile = path.join(os.homedir(), '.herenow', 'credentials');
     return {
         hereNow: Boolean(process.env.HERENOW_API_KEY || fs.existsSync(hereNowFile)),
-        publisher: Boolean(process.env.HERENOW_PUBLISH_SCRIPT),
-        gitBash: Boolean(process.env.GIT_BASH_PATH),
+        // publish.sh och Git Bash hittas automatiskt i local-env.js, så statusen är
+        // "går den att hitta" i stället för "är variabeln satt".
+        publisher: canResolve(resolvePublishScript),
+        gitBash: canResolve(resolveGitBash),
         sms: Boolean(process.env.ELKS_API_USERNAME && process.env.ELKS_API_PASSWORD),
         textbee: Boolean(process.env.TEXTBEE_API_KEY),
         textbeeBaseUrl: process.env.TEXTBEE_BASE_URL || 'https://api.textbee.dev/api/v1',
         ntfyServer: process.env.NTFY_SERVER_URL || 'https://ntfy.sh',
-        ntfyToken: Boolean(process.env.NTFY_ACCESS_TOKEN)
+        ntfyToken: Boolean(process.env.NTFY_ACCESS_TOKEN),
+        settings: settingsState()
     };
 }
 
@@ -196,7 +354,7 @@ function launchPlanner() {
 
 async function stopSessions() {
     await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Get-ScheduledTask -TaskName 'Fardtjanst-trip-*' -ErrorAction SilentlyContinue | ForEach-Object { Stop-ScheduledTask -TaskName $_.TaskName -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false -ErrorAction SilentlyContinue }; Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.CommandLine -match 'tracking-service\.js.*track' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`], { cwd: ROOT, windowsHide: true });
-    const key = process.env.HERENOW_API_KEY || fs.readFileSync(path.join(os.homedir(), '.herenow', 'credentials'), 'utf8').trim();
+    const key = hereNowKey();
     for (const session of activeSessions()) {
         await fetch(`https://here.now/api/v1/publish/${session.slug}`, {
             method: 'DELETE',
@@ -234,6 +392,16 @@ const server = http.createServer(async (request, response) => {
             fs.writeFileSync(USERS_FILE, `${JSON.stringify({ users }, null, 4)}\n`);
             return sendJson(response, 200, { users: maskedUsers() });
         }
+        if (url.pathname === '/api/settings' && request.method === 'PUT') {
+            if (!requireAction(request, response)) return;
+            const changed = saveSettings(await readBody(request));
+            return sendJson(response, 200, { changed, settings: settingsState() });
+        }
+        if (url.pathname === '/api/settings/test' && request.method === 'POST') {
+            if (!requireAction(request, response)) return;
+            const body = await readBody(request);
+            return sendJson(response, 200, { message: await testChannel(body.channel) });
+        }
         if (url.pathname === '/api/actions/run-planner' && request.method === 'POST') {
             if (!requireAction(request, response)) return;
             launchPlanner();
@@ -250,6 +418,15 @@ const server = http.createServer(async (request, response) => {
         console.error(error);
         sendJson(response, 500, { error: error.message });
     }
+});
+
+server.on('error', (error) => {
+    if (error && error.code === 'EADDRINUSE') {
+        console.log(`Port ${PORT} is already in use - the admin dashboard is probably already running.`);
+        process.exit(0);
+    }
+    console.error(error);
+    process.exit(1);
 });
 
 server.listen(PORT, HOST, () => console.log(`Serviceresor admin dashboard: http://${HOST}:${PORT}`));

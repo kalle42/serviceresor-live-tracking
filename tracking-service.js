@@ -5,13 +5,28 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const puppeteer = require('puppeteer-core');
 
-require('./local-env').loadLocalEnvironment(__dirname);
+const { loadLocalEnvironment, resolvePublishScript, resolveGitBash, resolveChrome } = require('./local-env');
+loadLocalEnvironment(__dirname);
 
 const SERVICE_URL = 'https://minaserviceresor.goteborg.se';
-const SHARE_API_KEY = process.env.HERENOW_API_KEY || fs.readFileSync(
-    path.join(os.homedir(), '.herenow', 'credentials'),
-    'utf8'
-).trim();
+// Nyckeln läses först när den behövs. Saknas den ska det ge ett begripligt fel vid
+// publiceringen — inte en krasch när modulen läses in, som även fäller den dagliga
+// planeringen och gör att felet syns först i en tom logg.
+function shareApiKey() {
+    const fromEnvironment = process.env.HERENOW_API_KEY;
+    if (fromEnvironment) return fromEnvironment;
+    const credentials = path.join(os.homedir(), '.herenow', 'credentials');
+    try {
+        const key = fs.readFileSync(credentials, 'utf8').trim();
+        if (key) return key;
+    } catch {
+        // Filen finns inte; felet nedan förklarar vad som ska göras.
+    }
+    throw new Error(
+        'here.now API-nyckel saknas. Ange den under API & nycklar i adminpanelen ' +
+        `eller lägg den i ${credentials}.`
+    );
+}
 const USERS = JSON.parse(fs.readFileSync(path.join(__dirname, 'users.local.json'), 'utf8')).users;
 const SESSION_RUNTIME_DIR = path.join(__dirname, 'session-runtime');
 const MINUTES_BEFORE_DEPARTURE = 10;
@@ -19,6 +34,7 @@ const MINUTES_AFTER_DEPARTURE = 90;
 const SESSION_URL_LIFETIME_MINUTES = 60;
 const VEHICLE_NUMBER_CHECK_INTERVAL_MS = 10000;
 const POSITION_HEARTBEAT_INTERVAL_MS = 30000;
+const VEHICLE_API_CHECK_INTERVAL_MS = 30000;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -124,10 +140,15 @@ async function loginWithRetry(page, user, attempts = 3) {
     throw lastError;
 }
 
+// Huvudlöst är standard: en schemalagd spårning ska inte öppna ett fönster på
+// användarens skrivbord. Sätt HEADLESS_BROWSER=0 för att se webbläsaren när en resa
+// felsöks för hand.
+const HEADLESS_BROWSER = process.env.HEADLESS_BROWSER !== '0';
+
 async function launchBrowser() {
     return puppeteer.launch({
-        headless: false,
-        executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        headless: HEADLESS_BROWSER,
+        executablePath: resolveChrome(),
         args: [
             '--disable-backgrounding-occluded-windows',
             '--disable-renderer-backgrounding',
@@ -204,21 +225,76 @@ function base64Url(value) {
     return Buffer.from(value).toString('base64url');
 }
 
-function createSessionSite() {
-    const bash = process.env.GIT_BASH_PATH || 'C:\\Program Files\\Git\\bin\\bash.exe';
-    const publishScript = process.env.HERENOW_PUBLISH_SCRIPT;
-    if (!publishScript) throw new Error('HERENOW_PUBLISH_SCRIPT saknas.');
+// Manifestet måste följa med publiceringen: utan det skapas ingen Site Data-kollektion
+// och varje positionsskrivning svarar 404 collection_disabled. Kartan blir då tom.
+const SESSION_DATA_MANIFEST = {
+    collections: {
+        positions: {
+            fields: {
+                ciphertext: { type: 'string', required: true, maxLength: 10000 },
+                iv: { type: 'string', required: true, maxLength: 100 }
+            },
+            access: { read: 'public', insert: 'owner', update: 'owner', delete: 'owner' }
+        }
+    }
+};
+
+// Manifestet versionshanteras, men äldre installationer saknade det. Skriv det bara
+// när det fattas så att filen i repo-katalogen lämnas orörd.
+function ensureSessionMapManifest() {
+    const file = path.join(__dirname, 'session-map', '.herenow', 'data.json');
+    if (fs.existsSync(file)) return;
+    try {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, JSON.stringify(SESSION_DATA_MANIFEST, null, 4));
+    } catch (error) {
+        throw new Error(`Site Data-manifestet kunde inte skrivas till ${file}: ${error.message}`);
+    }
+}
+
+// Kollektionen kan dröja någon sekund efter finalize, och API:t kan svara tillfälligt fel.
+// Fråga om tills den svarar eller tidsgränsen nås, i stället för att fälla spårningen
+// på en enda snabb kontroll.
+async function hasActiveCollection(slug, timeoutMs = 30000) {
+    const deadline = Date.now() + timeoutMs;
+    let lastStatus = 'inget svar';
+    while (Date.now() < deadline) {
+        try {
+            const response = await fetch(`https://here.now/api/v1/publishes/${slug}/data/positions?limit=1`, {
+                headers: { Authorization: `Bearer ${shareApiKey()}` }
+            });
+            if (response.ok) return true;
+            lastStatus = `HTTP ${response.status}`;
+            // 404 är det enda svaret som inte blir bättre av att vänta: sajten finns inte.
+            if (response.status === 404) {
+                const body = await response.text().catch(() => '');
+                if (body.includes('not_found') && !body.includes('collection')) return false;
+            }
+        } catch (error) {
+            lastStatus = error.message;
+        }
+        await delay(1000);
+    }
+    throw new Error(`Site Data-kollektionen svarade inte för ${slug} (${lastStatus}).`);
+}
+
+async function createSessionSite() {
+    const bash = resolveGitBash();
+    const publishScript = resolvePublishScript();
+    ensureSessionMapManifest();
     const toPosix = (value) => value.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
     const target = toPosix(path.join(__dirname, 'session-map'));
     const publisher = toPosix(publishScript);
     const adapter = toPosix(path.join(__dirname, 'tools', 'sha256sum'));
-    const command = `chmod +x "${adapter}"; export PATH="${path.posix.dirname(adapter)}:$PATH"; "${publisher}" "${target}" --ttl 3600 --client opencode`;
+    // Installationsprogrammet sätter inte körrättigheter på publish.sh, och en kopia
+    // som saknar dem ger "Permission denied". Sätt biten på båda filerna först.
+    const command = `chmod +x "${publisher}" "${adapter}"; export PATH="${path.posix.dirname(adapter)}:$PATH"; "${publisher}" "${target}" --ttl 3600 --client opencode`;
     const result = spawnSync(bash, ['-c', command], {
         cwd: __dirname,
         encoding: 'utf8',
         env: {
             ...process.env,
-            HERENOW_API_KEY: SHARE_API_KEY
+            HERENOW_API_KEY: shareApiKey()
         }
     });
     if (result.status !== 0) {
@@ -226,13 +302,19 @@ function createSessionSite() {
     }
     const siteUrl = result.stdout.match(/https:\/\/[a-z0-9-]+\.here\.now\//)?.[0];
     if (!siteUrl) throw new Error('Publiceringen returnerade ingen kartlänk.');
-    return { siteUrl, slug: new URL(siteUrl).hostname.split('.')[0] };
+    const slug = new URL(siteUrl).hostname.split('.')[0];
+    // Publiceringen kan lyckas utan att kollektionen aktiverats. Kontrollera innan
+    // länken skickas, så mottagaren aldrig får en karta som svarar 404.
+    if (!(await hasActiveCollection(slug, 30000))) {
+        throw new Error(`Sessionskartan saknar Site Data-kollektionen (${slug}).`);
+    }
+    return { siteUrl, slug };
 }
 
 async function deleteSessionSite(slug) {
     const response = await fetch(`https://here.now/api/v1/publish/${slug}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${SHARE_API_KEY}` }
+        headers: { Authorization: `Bearer ${shareApiKey()}` }
     });
     if (!response.ok && response.status !== 404) {
         throw new Error(`Sessionskartan kunde inte tas bort (${response.status}).`);
@@ -297,10 +379,12 @@ async function sendTrackingNtfy(topic, url, time) {
         headers.Authorization = `Bearer ${process.env.NTFY_ACCESS_TOKEN}`;
     }
 
+    // Länken måste stå i själva meddelandet: Click-huvudet fungerar bara i ntfy-appen
+    // och inte alls när notisen visas i webbläsaren eller vidarebefordras.
     const response = await fetch(`${server}/${encodeURIComponent(topic)}`, {
         method: 'POST',
         headers,
-        body: `Livekartan för resan ${time} är tillgänglig i 60 minuter.`
+        body: `Följ resan ${time}: ${url}\nLivekartan är tillgänglig i 60 minuter.`
     });
     if (!response.ok) {
         throw new Error(`ntfy kunde inte skicka notisen (${response.status}).`);
@@ -329,7 +413,15 @@ async function trackTrip(trip, user) {
 
     const browser = await launchBrowser();
     const sessionKey = crypto.randomBytes(32);
-    let session = createSessionSite();
+    let session;
+    try {
+        session = await createSessionSite();
+    } catch (error) {
+        // Stäng webbläsaren även när publiceringen misslyckas, annars fortsätter
+        // processen att leva och håller kvar resans mutex till nästa dygn.
+        await browser.close().catch(() => {});
+        throw error;
+    }
     const sessionExpiresAt = Date.now() + SESSION_URL_LIFETIME_MINUTES * 60000;
     let shareUrl = `${session.siteUrl}#${base64Url(sessionKey)}`;
     registerSession(session, shareUrl, trip, user, sessionExpiresAt);
@@ -337,6 +429,7 @@ async function trackTrip(trip, user) {
     let route;
     let lastVehicle;
     let vehicleNumber;
+    let lastPublishedSignature;
     let writeQueue = Promise.resolve();
     let sessionRotationCount = 0;
 
@@ -370,10 +463,13 @@ async function trackTrip(trip, user) {
 
     async function rotateSession() {
         if (sessionRotationCount >= 1) throw new Error('Sessionskartan försvann igen efter rotation.');
+        // En ny länk efter utgången är meningslös: publiceringen får 60 minuter från nu,
+        // men mottagaren har redan fått en titel som säger att resan är slut.
+        if (Date.now() >= sessionExpiresAt) return;
         sessionRotationCount += 1;
         await deleteSessionSite(session.slug).catch(() => {});
         unregisterSession(session.slug);
-        session = createSessionSite();
+        session = await createSessionSite();
         shareUrl = `${session.siteUrl}#${base64Url(sessionKey)}`;
         recordId = undefined;
         registerSession(session, shareUrl, trip, user, sessionExpiresAt);
@@ -381,29 +477,102 @@ async function trackTrip(trip, user) {
         console.log(`[${trip.time}] Ny sessionskarta skapad efter 404 och ny länk skickad.`);
     }
 
-    async function updateVehicleNumberFromHeader(page) {
-        const number = await page.evaluate(() => {
-            const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]'));
-            for (const heading of headings) {
-                const match = heading.textContent.trim().match(/(?:,\s*|\b)(\d{3})\s*$/);
-                if (match) return match[1];
-            }
+    // Läser resan och fordonsnumret direkt från plattformens API. Sidans titel räcker inte:
+    // fordonet tilldelas först i anslutning till avgång, och webbappen frågar
+    // /v2/trips/vehicleinfo/<externalId> upprepat tills vehicleNbr blir skilt från 0.
+    async function readTripApi(page) {
+        return page.evaluate(async (orderId) => {
+            const env = JSON.parse(localStorage.getItem('env') || '{}');
+            const token = localStorage.getItem('primary-token');
+            if (!env.API_URL || !token) return null;
+            const headers = {
+                'x-api-key': env.X_API_KEY,
+                Authorization: `Bearer ${token}`
+            };
 
-            return document.title.match(/(?:,\s*|\b)(\d{3})\s*$/)?.[1] || null;
-        });
-        if (!number || vehicleNumber) return;
+            const tripResponse = await fetch(`${env.API_URL}/d/trips/${orderId}`, { headers });
+            if (!tripResponse.ok) return null;
+            const tripPayload = await tripResponse.json().catch(() => null);
+            const tripData = tripPayload?.data;
+            if (!tripData) return null;
 
-        vehicleNumber = number;
-        updateSessionMetadata(session.slug, { vehicleNumber });
-        if (route || lastVehicle) {
+            const order = {
+                externalId: tripData.externalId,
+                pickupLat: Number(tripData?.pickup?.location?.lat),
+                pickupLon: Number(tripData?.pickup?.location?.lon),
+                dropoffLat: Number(tripData?.dropoff?.location?.lat),
+                dropoffLon: Number(tripData?.dropoff?.location?.lon),
+                pickedUp: tripData.dispatched === true,
+                firstName: String(tripData?.travellers?.[0]?.displayName || '').trim().split(/\s+/)[0],
+                pickupAddress: tripData?.pickup?.displayAddress || '',
+                dropoffAddress: tripData?.dropoff?.displayAddress || ''
+            };
+
+            if (!order.externalId) return { ...order, dispatchLinkNbr: null, vehicleNbr: null };
+            const vehicleResponse = await fetch(`${env.API_URL}/trips/vehicleinfo/${order.externalId}`, { headers });
+            if (!vehicleResponse.ok) return { ...order, dispatchLinkNbr: null, vehicleNbr: null };
+            const vehiclePayload = await vehicleResponse.json().catch(() => null);
+
+            // vehicleInfo är den aktuella formen; det platta fältet fanns i tidigare svar.
+            const info = vehiclePayload?.data?.vehicleInfo || vehiclePayload?.data || {};
+            return {
+                ...order,
+                dispatchLinkNbr: info.dispatchLinkNbr || null,
+                vehicleNbr: Number(info.vehicleNbr) || 0
+            };
+        }, trip.url.split('/').pop());
+    }
+
+    async function updateFromTripApi(page) {
+        let details;
+        try {
+            details = await readTripApi(page);
+        } catch (error) {
+            console.error(`[${trip.time}] Kunde inte läsa rese-API:t:`, error.message);
+            return;
+        }
+        if (!details) return;
+
+        const coordinates = [details.pickupLat, details.pickupLon, details.dropoffLat, details.dropoffLon];
+        if (coordinates.every(Number.isFinite)) {
+            route = {
+                pickup_latitude: details.pickupLat,
+                pickup_longitude: details.pickupLon,
+                dropoff_latitude: details.dropoffLat,
+                dropoff_longitude: details.dropoffLon,
+                vehicle_number: vehicleNumber || '',
+                first_name: details.firstName,
+                pickup_address: details.pickupAddress,
+                dropoff_address: details.dropoffAddress
+            };
+        } else if (details.firstName || details.pickupAddress) {
+            route = { ...(route || {}), first_name: details.firstName, pickup_address: details.pickupAddress, dropoff_address: details.dropoffAddress };
+        }
+
+        if (!vehicleNumber && details.vehicleNbr) {
+            vehicleNumber = String(details.vehicleNbr);
+            console.log(`[${trip.time}] Fordonsnummer ${vehicleNumber} läst via API:t.`);
+        }
+
+        // Publicera även innan fordonet är tilldelat: annars finns ingen post att läsa
+        // när länken öppnas, och kartan står tom tills föraren närmar sig avgången.
+        const signature = JSON.stringify([route, vehicleNumber]);
+        if (route && signature !== lastPublishedSignature) {
+            lastPublishedSignature = signature;
             await writeSharedData({
                 recorded_at: new Date().toISOString(),
                 ...lastVehicle,
                 ...route,
-                vehicle_number: vehicleNumber
+                vehicle_number: vehicleNumber || ''
             });
         }
-        console.log(`[${trip.time}] Fordonsnummer ${vehicleNumber} läst från sidhuvudet.`);
+
+        updateSessionMetadata(session.slug, {
+            firstName: route?.first_name,
+            pickupAddress: route?.pickup_address,
+            dropoffAddress: route?.dropoff_address,
+            vehicleNumber: vehicleNumber || ''
+        });
     }
 
     async function writeSharedData(data) {
@@ -419,7 +588,7 @@ async function trackTrip(trip, user) {
                 const response = await fetch(endpoint, {
                     method: recordId ? 'PATCH' : 'POST',
                     headers: {
-                        Authorization: `Bearer ${SHARE_API_KEY}`,
+                        Authorization: `Bearer ${shareApiKey()}`,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(encryptPayload(sharedData, sessionKey))
@@ -429,12 +598,22 @@ async function trackTrip(trip, user) {
                     return;
                 }
 
-                if (response.status === 404 && attempt === 1) {
+                const detail = (await response.text()).slice(0, 300);
+                // 404 collection_disabled betyder att sajten finns men saknar manifestet.
+                // En ny sajt löser inte det, så den ska inte roteras bort.
+                const collectionDisabled = detail.includes('collection_disabled');
+                if (response.status === 404 && attempt === 1 && !collectionDisabled) {
+                    // Publiceringen sätter sajtens TTL till samma 60 minuter som
+                    // sessionExpiresAt, så den sista positionen kan 404:a i samma sekund
+                    // som länken löper ut. Då är en ny karta död vid skapandet: loopen
+                    // avslutas direkt och finally raderar den. Skicka ingen ny länk.
+                    if (Date.now() >= sessionExpiresAt) return;
                     await rotateSession();
                     continue;
                 }
-
-                const detail = (await response.text()).slice(0, 300);
+                if (collectionDisabled) {
+                    throw new Error(`Site Data-kollektionen är inte aktiv för ${session.slug}: ${detail}`);
+                }
                 if (attempt === 3) {
                     throw new Error(`Kartdata kunde inte publiceras (${response.status}): ${detail}`);
                 }
@@ -445,7 +624,6 @@ async function trackTrip(trip, user) {
     }
 
     try {
-        await deliverShareLink(shareUrl);
         const page = await browser.newPage();
         page.on('response', (response) => {
             const contentType = response.headers()['content-type'] || '';
@@ -454,14 +632,15 @@ async function trackTrip(trip, user) {
 
             if (/\/v2\/trips\/vehicleinfo\//.test(responsePath)) {
                 response.json().then(async (payload) => {
-                    const info = payload?.data || payload;
+                    // Svarets fordon ligger under data.vehicleInfo sedan API:t ändrades.
+                    const info = payload?.data?.vehicleInfo || payload?.data || payload;
                     if (!vehicleNumber && info?.vehicleNbr !== undefined && Number(info.vehicleNbr) !== 0) {
                         vehicleNumber = String(info.vehicleNbr);
                         updateSessionMetadata(session.slug, { vehicleNumber });
                         if (route || lastVehicle) {
                             await writeSharedData({ recorded_at: new Date().toISOString(), ...lastVehicle, ...route, vehicle_number: vehicleNumber });
                         }
-                        console.log(`[${trip.time}] Fordonsnummer läst.`);
+                        console.log(`[${trip.time}] Fordonsnummer ${vehicleNumber} läst från nätverket.`);
                     }
                 }).catch((error) => console.error(`[${trip.time}] Kunde inte läsa fordonsinfo:`, error.message));
                 return;
@@ -492,6 +671,10 @@ async function trackTrip(trip, user) {
                     dropoffAddress: route.dropoff_address,
                     vehicleNumber: route.vehicle_number || vehicleNumber || ''
                 });
+                // Sidan hämtar resan med jämna mellanrum; skriv bara när något ändrats.
+                const signature = JSON.stringify([route, vehicleNumber]);
+                if (signature === lastPublishedSignature) return;
+                lastPublishedSignature = signature;
                 await writeSharedData({ recorded_at: new Date().toISOString(), ...lastVehicle, ...route });
                 console.log(`[${trip.time}] Från och Till publicerade.`);
             }).catch((error) => console.error(`[${trip.time}] Kunde inte läsa resdata:`, error.message));
@@ -522,15 +705,22 @@ async function trackTrip(trip, user) {
 
         await loginWithRetry(page, user);
         await page.goto(trip.url, { waitUntil: 'networkidle2' });
-        await updateVehicleNumberFromHeader(page);
+        // Resedata publiceras innan länken skickas, annars öppnar mottagaren en tom karta.
+        await updateFromTripApi(page);
+        await deliverShareLink(shareUrl);
         console.log(`[${trip.time}] Spårning startad.`);
 
         const trackingStopAt = tripDate(trip.minutes + MINUTES_AFTER_DEPARTURE).getTime();
         const stopAt = Math.min(trackingStopAt, sessionExpiresAt);
         let lastHeartbeatAt = 0;
+        let lastApiCheckAt = Date.now();
         while (Date.now() < stopAt) {
             await delay(VEHICLE_NUMBER_CHECK_INTERVAL_MS);
-            await updateVehicleNumberFromHeader(page);
+            if (Date.now() - lastApiCheckAt >= VEHICLE_API_CHECK_INTERVAL_MS) {
+                lastApiCheckAt = Date.now();
+                await updateFromTripApi(page);
+            }
+
             if (lastVehicle && Date.now() - lastHeartbeatAt >= POSITION_HEARTBEAT_INTERVAL_MS) {
                 await writeSharedData({
                     recorded_at: new Date().toISOString(),

@@ -81,15 +81,51 @@ function renderTasks(tasks) {
     $('#planner-signal').className = planner ? 'signal' : 'signal bad';
 }
 
-function renderEnvironment(environment) {
-    const entries = [
-        ['here.now', environment.hereNow], ['Publisher', environment.publisher], ['Git Bash', environment.gitBash],
-        ['46elks', environment.sms], ['ntfy token', environment.ntfyToken], ['ntfy server', environment.ntfyServer]
-    ];
-    $('#environment-list').innerHTML = entries.map(([label, value]) => {
-        const boolean = typeof value === 'boolean';
-        return `<div class="environment-item"><span>${escapeHtml(label)}</span><strong class="${boolean ? (value ? 'ok' : 'missing') : 'ok'}">${escapeHtml(boolean ? (value ? 'Klar' : 'Saknas') : value)}</strong></div>`;
+const SETTINGS_TESTS = [['Kartpublicering', 'herenow'], ['SMS via 46elks', 'elks'], ['SMS via TextBee', 'textbee'], ['ntfy', 'ntfy']];
+
+function renderSettings(settings) {
+    state.settings = settings;
+    const groups = [...new Set(settings.map((field) => field.group))];
+    $('#settings-list').innerHTML = groups.map((group) => {
+        const channel = SETTINGS_TESTS.find(([name]) => name === group)?.[1];
+        const rows = settings.filter((field) => field.group === group).map((field) => {
+            // Ett sparat värde visas bara som mask. Fältet är tomt tills det fylls i,
+            // och tomt betyder "behåll" — samma regel som användarformuläret.
+            const placeholder = field.configured
+                ? (field.secret ? `${field.masked || '••••'} (sparat)` : String(field.value || ''))
+                : 'Inte konfigurerat';
+            const status = field.overridden
+                ? '<span class="settings-state warn">Överskuggad</span>'
+                : field.configured ? '<span class="settings-state ok">Klar</span>' : '<span class="settings-state missing">Saknas</span>';
+            return `
+                <div class="settings-row">
+                    <label for="setting-${field.name}">${escapeHtml(field.label)}</label>
+                    <input id="setting-${field.name}" data-setting="${escapeHtml(field.name)}" autocomplete="off"
+                        ${field.secret ? 'type="password"' : 'type="text"'} placeholder="${escapeHtml(placeholder)}">
+                    <div class="settings-actions">${status}${field.configured ? `<button class="settings-test" data-clear="${escapeHtml(field.name)}">Rensa</button>` : ''}</div>
+                    ${field.overridden ? '<p class="settings-override">En miljövariabel på maskinnivå har ett annat värde och vinner över filen. Ta bort den för att panelens värde ska gälla.</p>' : ''}
+                </div>`;
+        }).join('');
+        return `<div class="settings-group"><h3>${escapeHtml(group)}${channel ? ` <button class="settings-test" data-channel="${channel}">Testa</button>` : ''}</h3>${rows}</div>`;
     }).join('');
+
+    document.querySelectorAll('.settings-test[data-channel]').forEach((button) => button.addEventListener('click', async () => {
+        button.disabled = true;
+        try { toast((await api('/api/settings/test', { method:'POST', action:true, body:JSON.stringify({ channel:button.dataset.channel }) })).message); }
+        catch (error) { toast(error.message); }
+        finally { button.disabled = false; }
+    }));
+
+    // Rensa skickar ett tomt värde, vilket servern tolkar som "ta bort nyckeln".
+    document.querySelectorAll('.settings-test[data-clear]').forEach((button) => button.addEventListener('click', async () => {
+        const field = settings.find((item) => item.name === button.dataset.clear);
+        if (!confirm(`Ta bort ${field?.label || button.dataset.clear}?`)) return;
+        try {
+            const result = await api('/api/settings', { method:'PUT', body:JSON.stringify({ remove:[button.dataset.clear] }), action:true });
+            renderSettings(result.settings);
+            toast('Inställningen togs bort');
+        } catch (error) { toast(error.message); }
+    }));
 }
 
 function renderLogs(logs) {
@@ -106,7 +142,7 @@ function render(data) {
     renderActiveTrips(data.sessions || []);
     renderUsers(data.users || []);
     renderTasks(data.tasks || []);
-    renderEnvironment(data.environment || {});
+    renderSettings(data.environment?.settings || []);
     renderLogs(data.logs || {});
     $('#plan-date').classList.toggle('stale', data.planStatus === 'stale');
     $('#plan-date').title = data.planStatus === 'stale' ? `Planen är från ${data.plan?.date || 'okänt datum'}. Lokal dag är ${data.localDate}.` : 'Aktuell plan';
@@ -153,6 +189,20 @@ $('#user-form').addEventListener('submit', async (event) => {
 });
 
 $('#refresh-button').addEventListener('click', () => refresh());
+$('#settings-save').addEventListener('click', async () => {
+    const values = {};
+    // Tomma fält skickas inte alls: "orörd" och "rensa" måste gå att skilja åt.
+    document.querySelectorAll('[data-setting]').forEach((input) => {
+        if (input.value.trim()) values[input.dataset.setting] = input.value.trim();
+    });
+    if (!Object.keys(values).length) { toast('Inget att spara'); return; }
+    try {
+        const result = await api('/api/settings', { method:'PUT', body:JSON.stringify({ values }), action:true });
+        document.querySelectorAll('[data-setting]').forEach((input) => { input.value = ''; });
+        renderSettings(result.settings);
+        toast(`${result.changed.length} inställning(ar) sparade`);
+    } catch (error) { toast(error.message); }
+});
 $('#planner-button').addEventListener('click', async () => {
     try { await api('/api/actions/run-planner', { method:'POST', action:true }); toast('Planeringen startades'); setTimeout(() => refresh(true), 4000); } catch (error) { toast(error.message); }
 });
