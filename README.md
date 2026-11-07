@@ -1,8 +1,19 @@
 # Serviceresor Live Tracking
 
-Windows-app som läser dagens Serviceresor, kontrollerar avbokningar och skapar krypterade livekartor. Kartlänken kan skickas via 46elks, TextBee och/eller ntfy. Kartan stängs efter 60 minuter.
+Läser dagens Serviceresor, kontrollerar avbokningar och skapar krypterade livekartor över resorna. Kartlänken skickas via 46elks, TextBee och/eller ntfy och kartan stängs efter 60 minuter. Kartvisaren är en Leaflet-karta med OpenStreetMap som publiceras till here.now.
 
-## Krav
+## Två sätt att köra
+
+|  | Windows | Docker |
+| --- | --- | --- |
+| Installation | exe-guide eller `setup-app.ps1` | `docker compose up -d` |
+| Schemaläggning | Windows Task Scheduler | `scheduler.js` i behållaren |
+| Adminpanel | <http://127.0.0.1:8787> | <http://127.0.0.1:8787> |
+| Detaljer | nedan | [docker/README.md](docker/README.md) |
+
+Windows-versionen i roten är originalen. Docker-versionen i [docker/](docker/) använder kopior av samma fungerande filer, så båda kan leva sida vid sida.
+
+## Krav (Windows)
 
 - Windows 10 eller senare
 - Git för Windows och Git Bash
@@ -11,7 +22,9 @@ Windows-app som läser dagens Serviceresor, kontrollerar avbokningar och skapar 
 - Google Chrome
 - `jq`
 
-## Installera med exe-guiden
+## Installera på Windows
+
+### Med exe-guiden
 
 Bygg guiden:
 
@@ -31,7 +44,7 @@ Git Bash hittas automatiskt från Git för Windows. `publish.sh` hittas automati
 
 Serviceresor-användarnas personnummer och lösenord lagras separat i `users.local.json`.
 
-## Snabb deploy
+### Snabb deploy
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
@@ -47,7 +60,7 @@ git pull --ff-only origin development
 
 Kör `setup-app.ps1 -SkipTasks` om schemalagda uppgifter inte ska registreras.
 
-## Lokal konfiguration
+### Lokal konfiguration
 
 ```powershell
 Copy-Item .\users.example.json .\users.local.json
@@ -64,7 +77,7 @@ Starta adminpanelen manuellt:
 npm run admin
 ```
 
-Öppna `http://127.0.0.1:8787` och logga in som `admin`.
+Öppna `http://127.0.0.1:8787` och logga in som `admin`. Där finns dagens plan, schemalagda uppgifter, aktiva kartor, inställningar för nycklar och testknappar för SMS/ntfy-kanalerna.
 
 Tray-appen installeras i `%LOCALAPPDATA%\Serviceresor` och startar via användarens Startup-mapp. Dubbelklick öppnar adminpanelen. Högerklick visar öppna, starta om och avsluta.
 
@@ -88,7 +101,7 @@ Planeraren körs klockan `01:00` och:
 
 ## Docker
 
-Det finns även en Docker-version i [docker/](docker/README.md). Windows-versionen i roten är oförändrad; `docker/app/` innehåller kopior av de fungerande filerna och `node docker/sync-app.js` håller dem uppdaterade.
+Se [docker/README.md](docker/README.md) för bygge, körning och ghcr-bilden. Kort sagt: fyll i `docker/data/`, kör `docker compose up -d`, öppna adminpanelen. `node docker/sync-app.js` håller Docker-kopiorna uppdaterade med Windows-filerna.
 
 ## Tester
 
