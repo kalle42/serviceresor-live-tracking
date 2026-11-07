@@ -77,7 +77,7 @@ Starta adminpanelen manuellt:
 npm run admin
 ```
 
-Öppna `http://127.0.0.1:8787` och logga in som `admin`. Där finns dagens plan, schemalagda uppgifter, aktiva kartor, inställningar för nycklar och testknappar för SMS/ntfy-kanalerna.
+Öppna `http://127.0.0.1:8787` och logga in som `admin`. Översikten visar dagens plan, schemalagda uppgifter och aktiva kartor. Menyn i toppen har egna sidor för `Användare & leverans` och `API & nycklar` (nycklar och testknappar för SMS/ntfy-kanalerna).
 
 Tray-appen installeras i `%LOCALAPPDATA%\Serviceresor` och startar via användarens Startup-mapp. Dubbelklick öppnar adminpanelen. Högerklick visar öppna, starta om och avsluta.
 

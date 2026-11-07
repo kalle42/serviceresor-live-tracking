@@ -1,4 +1,4 @@
-const state = { overview: null, selectedLog: 'planner' };
+const state = { overview: null, selectedLog: 'planner', users: [] };
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[character]));
 const list = (value) => Array.isArray(value) ? value : value ? [value] : [];
@@ -27,6 +27,8 @@ async function api(path, options = {}) {
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     return payload;
 }
+
+// ---------------------------------------------------------------- Översikt
 
 function renderTrips(plan) {
     const trips = list(plan?.users).flatMap((user) => list(user.trips).map((trip) => ({ ...trip, userId:user.userId })));
@@ -62,6 +64,59 @@ function renderActiveTrips(sessions) {
         </article>`).join('') : 'Inga aktiva resor just nu.';
 }
 
+function renderTasks(tasks) {
+    $('#task-list').innerHTML = tasks.length ? tasks.map((task) => `
+        <tr><td>${escapeHtml(task.name)}</td><td>${escapeHtml(task.state)}</td><td>${formatDate(task.nextRun)}</td><td>${escapeHtml(task.lastResult)}</td></tr>`).join('') : '<tr><td colspan="4">Inga uppgifter hittades.</td></tr>';
+    const planner = tasks.find((task) => task.name === 'Serviceresor daily planner');
+    $('#planner-status').textContent = planner ? planner.state : 'Saknas';
+    $('#planner-signal').className = planner ? 'signal' : 'signal bad';
+}
+
+function renderLogs(logs) {
+    const lines = list(logs[state.selectedLog]);
+    $('#log-output').textContent = lines.length ? lines.join('\n') : 'Ingen loggdata.';
+    $('#error-count').textContent = list(logs.errors).length;
+    $('#error-signal').className = list(logs.errors).length ? 'signal bad' : 'signal';
+}
+
+function render(data) {
+    state.overview = data;
+    renderTrips(data.plan);
+    renderSessions(data.sessions || []);
+    renderActiveTrips(data.sessions || []);
+    renderTasks(data.tasks || []);
+    renderLogs(data.logs || {});
+    $('#plan-date').classList.toggle('stale', data.planStatus === 'stale');
+    $('#plan-date').title = data.planStatus === 'stale' ? `Planen är från ${data.plan?.date || 'okänt datum'}. Lokal dag är ${data.localDate}.` : 'Aktuell plan';
+    $('#updated-at').textContent = new Date(data.generatedAt).toLocaleTimeString('sv-SE');
+}
+
+async function refresh(silent = false) {
+    try {
+        render(await api('/api/overview'));
+        if (!silent) toast('Dashboard uppdaterad');
+    } catch (error) {
+        $('#planner-status').textContent = 'Kunde inte läsa';
+        toast(error.message);
+    }
+}
+
+function initDashboard() {
+    $('#refresh-button').addEventListener('click', () => refresh());
+    $('#planner-button').addEventListener('click', async () => {
+        try { await api('/api/actions/run-planner', { method:'POST', action:true }); toast('Planeringen startades'); setTimeout(() => refresh(true), 4000); } catch (error) { toast(error.message); }
+    });
+    $('#stop-button').addEventListener('click', async () => {
+        if (!confirm('Stäng alla kartor, trackers och reseuppgifter?')) return;
+        try { await api('/api/actions/stop-sessions', { method:'POST', action:true }); await refresh(true); toast('Alla sessioner stängdes'); } catch (error) { toast(error.message); }
+    });
+    $('#log-selector').addEventListener('change', (event) => { state.selectedLog = event.target.value; renderLogs(state.overview.logs); });
+    setInterval(() => refresh(true), 30000);
+    refresh(true);
+}
+
+// ---------------------------------------------------------------- Användare
+
 function renderUsers(users) {
     $('#user-list').innerHTML = users.map((user) => `
         <article class="user-card">
@@ -73,18 +128,54 @@ function renderUsers(users) {
     document.querySelectorAll('.edit-user').forEach((button) => button.addEventListener('click', () => openUserForm(users.find((user) => user.id === button.dataset.user))));
 }
 
-function renderTasks(tasks) {
-    $('#task-list').innerHTML = tasks.length ? tasks.map((task) => `
-        <tr><td>${escapeHtml(task.name)}</td><td>${escapeHtml(task.state)}</td><td>${formatDate(task.nextRun)}</td><td>${escapeHtml(task.lastResult)}</td></tr>`).join('') : '<tr><td colspan="4">Inga uppgifter hittades.</td></tr>';
-    const planner = tasks.find((task) => task.name === 'Serviceresor daily planner');
-    $('#planner-status').textContent = planner ? planner.state : 'Saknas';
-    $('#planner-signal').className = planner ? 'signal' : 'signal bad';
+function openUserForm(user = null) {
+    $('#user-form').classList.remove('hidden');
+    $('#form-title').textContent = user ? `Redigera ${user.id}` : 'Ny användare';
+    $('#user-id').value = user?.id || '';
+    $('#user-id').readOnly = Boolean(user);
+    $('#user-ssn').value = '';
+    $('#user-password').value = '';
+    $('#user-sms').value = list(user?.smsTo).join('\n');
+    $('#user-textbee').value = list(user?.textbeeTo).join('\n');
+    $('#user-ntfy').value = list(user?.ntfyTopics).join('\n');
+    $('#user-form').scrollIntoView({ behavior:'smooth', block:'center' });
 }
+
+async function refreshUsers(silent = false) {
+    try {
+        state.users = (await api('/api/users')).users;
+        renderUsers(state.users);
+        if (!silent) toast('Användarlistan uppdaterad');
+    } catch (error) { toast(error.message); }
+}
+
+function initUsers() {
+    $('#user-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const payload = {
+            id: $('#user-id').value.trim(), ssn: $('#user-ssn').value.trim(), password: $('#user-password').value,
+            smsTo: $('#user-sms').value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
+            textbeeTo: $('#user-textbee').value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
+            ntfyTopics: $('#user-ntfy').value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean)
+        };
+        try {
+            await api('/api/users', { method:'PUT', body:JSON.stringify(payload), action:true });
+            $('#user-form').classList.add('hidden');
+            await refreshUsers(true);
+            toast('Användaren sparades');
+        } catch (error) { toast(error.message); }
+    });
+    $('#new-user-button').addEventListener('click', () => openUserForm());
+    $('#close-form').addEventListener('click', () => $('#user-form').classList.add('hidden'));
+    $('#refresh-button').addEventListener('click', () => refreshUsers());
+    refreshUsers(true);
+}
+
+// ---------------------------------------------------------------- Inställningar
 
 const SETTINGS_TESTS = [['Kartpublicering', 'herenow'], ['SMS via 46elks', 'elks'], ['SMS via TextBee', 'textbee'], ['ntfy', 'ntfy']];
 
 function renderSettings(settings) {
-    state.settings = settings;
     const groups = [...new Set(settings.map((field) => field.group))];
     $('#settings-list').innerHTML = groups.map((group) => {
         const channel = SETTINGS_TESTS.find(([name]) => name === group)?.[1];
@@ -128,91 +219,35 @@ function renderSettings(settings) {
     }));
 }
 
-function renderLogs(logs) {
-    const lines = list(logs[state.selectedLog]);
-    $('#log-output').textContent = lines.length ? lines.join('\n') : 'Ingen loggdata.';
-    $('#error-count').textContent = list(logs.errors).length;
-    $('#error-signal').className = list(logs.errors).length ? 'signal bad' : 'signal';
-}
-
-function render(data) {
-    state.overview = data;
-    renderTrips(data.plan);
-    renderSessions(data.sessions || []);
-    renderActiveTrips(data.sessions || []);
-    renderUsers(data.users || []);
-    renderTasks(data.tasks || []);
-    renderSettings(data.environment?.settings || []);
-    renderLogs(data.logs || {});
-    $('#plan-date').classList.toggle('stale', data.planStatus === 'stale');
-    $('#plan-date').title = data.planStatus === 'stale' ? `Planen är från ${data.plan?.date || 'okänt datum'}. Lokal dag är ${data.localDate}.` : 'Aktuell plan';
-    $('#updated-at').textContent = new Date(data.generatedAt).toLocaleTimeString('sv-SE');
-}
-
-async function refresh(silent = false) {
+async function refreshSettings(silent = false) {
     try {
-        render(await api('/api/overview'));
-        if (!silent) toast('Dashboard uppdaterad');
-    } catch (error) {
-        $('#planner-status').textContent = 'Kunde inte läsa';
-        toast(error.message);
-    }
-}
-
-function openUserForm(user = null) {
-    $('#user-form').classList.remove('hidden');
-    $('#form-title').textContent = user ? `Redigera ${user.id}` : 'Ny användare';
-    $('#user-id').value = user?.id || '';
-    $('#user-id').readOnly = Boolean(user);
-    $('#user-ssn').value = '';
-    $('#user-password').value = '';
-    $('#user-sms').value = list(user?.smsTo).join('\n');
-    $('#user-textbee').value = list(user?.textbeeTo).join('\n');
-    $('#user-ntfy').value = list(user?.ntfyTopics).join('\n');
-    $('#user-form').scrollIntoView({ behavior:'smooth', block:'center' });
-}
-
-$('#user-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const payload = {
-        id: $('#user-id').value.trim(), ssn: $('#user-ssn').value.trim(), password: $('#user-password').value,
-        smsTo: $('#user-sms').value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
-        textbeeTo: $('#user-textbee').value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
-        ntfyTopics: $('#user-ntfy').value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean)
-    };
-    try {
-        await api('/api/users', { method:'PUT', body:JSON.stringify(payload), action:true });
-        $('#user-form').classList.add('hidden');
-        await refresh(true);
-        toast('Användaren sparades');
+        renderSettings((await api('/api/settings')).settings);
+        if (!silent) toast('Inställningarna uppdaterade');
     } catch (error) { toast(error.message); }
-});
+}
 
-$('#refresh-button').addEventListener('click', () => refresh());
-$('#settings-save').addEventListener('click', async () => {
-    const values = {};
-    // Tomma fält skickas inte alls: "orörd" och "rensa" måste gå att skilja åt.
-    document.querySelectorAll('[data-setting]').forEach((input) => {
-        if (input.value.trim()) values[input.dataset.setting] = input.value.trim();
+function initSettings() {
+    $('#settings-save').addEventListener('click', async () => {
+        const values = {};
+        // Tomma fält skickas inte alls: "orörd" och "rensa" måste gå att skilja åt.
+        document.querySelectorAll('[data-setting]').forEach((input) => {
+            if (input.value.trim()) values[input.dataset.setting] = input.value.trim();
+        });
+        if (!Object.keys(values).length) { toast('Inget att spara'); return; }
+        try {
+            const result = await api('/api/settings', { method:'PUT', body:JSON.stringify({ values }), action:true });
+            document.querySelectorAll('[data-setting]').forEach((input) => { input.value = ''; });
+            renderSettings(result.settings);
+            toast(`${result.changed.length} inställning(ar) sparade`);
+        } catch (error) { toast(error.message); }
     });
-    if (!Object.keys(values).length) { toast('Inget att spara'); return; }
-    try {
-        const result = await api('/api/settings', { method:'PUT', body:JSON.stringify({ values }), action:true });
-        document.querySelectorAll('[data-setting]').forEach((input) => { input.value = ''; });
-        renderSettings(result.settings);
-        toast(`${result.changed.length} inställning(ar) sparade`);
-    } catch (error) { toast(error.message); }
-});
-$('#planner-button').addEventListener('click', async () => {
-    try { await api('/api/actions/run-planner', { method:'POST', action:true }); toast('Planeringen startades'); setTimeout(() => refresh(true), 4000); } catch (error) { toast(error.message); }
-});
-$('#stop-button').addEventListener('click', async () => {
-    if (!confirm('Stäng alla kartor, trackers och reseuppgifter?')) return;
-    try { await api('/api/actions/stop-sessions', { method:'POST', action:true }); await refresh(true); toast('Alla sessioner stängdes'); } catch (error) { toast(error.message); }
-});
-$('#new-user-button').addEventListener('click', () => openUserForm());
-$('#close-form').addEventListener('click', () => $('#user-form').classList.add('hidden'));
-$('#log-selector').addEventListener('change', (event) => { state.selectedLog = event.target.value; renderLogs(state.overview.logs); });
+    $('#refresh-button').addEventListener('click', () => refreshSettings());
+    refreshSettings(true);
+}
+
+// ---------------------------------------------------------------- gemensamt
+
 setInterval(() => { $('#clock').textContent = new Date().toLocaleTimeString('sv-SE'); }, 1000);
-setInterval(() => refresh(true), 30000);
-refresh(true);
+if ($('#trip-list')) initDashboard();
+if ($('#user-list')) initUsers();
+if ($('#settings-list')) initSettings();

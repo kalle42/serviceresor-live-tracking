@@ -30,6 +30,8 @@ const COPIES = [
     'session-map/.herenow/data.json',
     'admin-dashboard/app.js',
     'admin-dashboard/index.html',
+    'admin-dashboard/settings.html',
+    'admin-dashboard/users.html',
     'admin-dashboard/styles.css',
     'tools/sha256sum'
 ];
