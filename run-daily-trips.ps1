@@ -1,6 +1,7 @@
 $project = $PSScriptRoot
 . (Join-Path $PSScriptRoot 'find-node.ps1')
 $node = Find-NodeExe
+$vbs = Join-Path $project 'run-hidden.vbs'
 $mutex = New-Object System.Threading.Mutex($false, 'FardtjanstDailyTrips')
 
 try {
@@ -41,8 +42,8 @@ try {
 
         $taskName = "Fardtjanst-trip-$($plan.date)-$($userPlan.userId)-$($trip.time.Replace(':', ''))"
         $runner = Join-Path $project 'run-track-trip.ps1'
-        $arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runner`" -UserId `"$($userPlan.userId)`" -Url `"$($trip.url)`" -Time `"$($trip.time)`" -Minutes $($trip.minutes)"
-        $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
+        $command = "powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runner`" -UserId `"$($userPlan.userId)`" -Url `"$($trip.url)`" -Time `"$($trip.time)`" -Minutes $($trip.minutes)"
+        $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + $vbs + '" "' + $command.Replace('"', '""') + '"')
         $trigger = New-ScheduledTaskTrigger -Once -At $startAt
         $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 3)
         $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
@@ -52,8 +53,8 @@ try {
         if ($checkAt -gt (Get-Date)) {
             $checkTaskName = "Fardtjanst-trip-check-$($plan.date)-$($userPlan.userId)-$($trip.time.Replace(':', ''))"
             $checkRunner = Join-Path $project 'run-check-trip.ps1'
-            $checkArguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$checkRunner`" -UserId `"$($userPlan.userId)`" -Url `"$($trip.url)`" -Time `"$($trip.time)`" -TrackingTaskName `"$taskName`""
-            $checkAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $checkArguments
+            $checkCommand = "powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$checkRunner`" -UserId `"$($userPlan.userId)`" -Url `"$($trip.url)`" -Time `"$($trip.time)`" -TrackingTaskName `"$taskName`""
+            $checkAction = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + $vbs + '" "' + $checkCommand.Replace('"', '""') + '"')
             $checkTrigger = New-ScheduledTaskTrigger -Once -At $checkAt
             $checkSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
             Register-ScheduledTask -TaskName $checkTaskName -Action $checkAction -Trigger $checkTrigger -Settings $checkSettings -Principal $principal -Description "Checks whether the $($trip.time) trip is still booked one hour before departure." -Force | Out-Null

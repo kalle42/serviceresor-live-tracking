@@ -2,7 +2,9 @@ param([string]$Project = $PSScriptRoot)
 
 $taskName = 'Serviceresor admin dashboard'
 $runner = Join-Path $Project 'run-admin-dashboard.ps1'
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runner`""
+$vbs = Join-Path $Project 'run-hidden.vbs'
+$command = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $runner + '"'
+$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + $vbs + '" "' + $command.Replace('"', '""') + '"')
 $triggerLogon = New-ScheduledTaskTrigger -AtLogOn
 # Watchdog trigger: re-fires every 5 minutes. Combined with MultipleInstances IgnoreNew
 # this only (re)starts the dashboard if it is not already running.

@@ -39,6 +39,8 @@ Source: "{#ProjectRoot}\.env.example.json"; DestDir: "{app}"; Flags: ignoreversi
 Source: "{#ProjectRoot}\users.example.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ProjectRoot}\run-*.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ProjectRoot}\find-node.ps1"; DestDir: "{app}"; Flags: ignoreversion
+; Uppgiftsåtgärder startas via denna för att inte visa något konsolfönster.
+Source: "{#ProjectRoot}\run-hidden.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ProjectRoot}\install-*.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ProjectRoot}\setup-*.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ProjectRoot}\uninstall-app.ps1"; DestDir: "{app}"; Flags: ignoreversion
