@@ -4,7 +4,7 @@
 [Setup]
 AppId={{B41A7D92-6C3E-4F0A-8E2B-9D5C1F7A3E60}
 AppName={#AppName}
-AppVersion=1.0.0
+AppVersion=1.1.0
 AppPublisher=Serviceresor
 DefaultDirName={autopf}\ServiceresorUninstall
 CreateAppDir=no

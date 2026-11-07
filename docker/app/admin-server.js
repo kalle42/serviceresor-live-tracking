@@ -393,6 +393,8 @@ const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host || `${HOST}:${PORT}`}`);
     try {
         if (url.pathname === '/api/overview' && request.method === 'GET') return sendJson(response, 200, await overview());
+        if (url.pathname === '/api/users' && request.method === 'GET') return sendJson(response, 200, { users: maskedUsers() });
+        if (url.pathname === '/api/settings' && request.method === 'GET') return sendJson(response, 200, { settings: settingsState() });
         if (url.pathname === '/api/users' && request.method === 'PUT') {
             if (!requireAction(request, response)) return;
             const body = await readBody(request);

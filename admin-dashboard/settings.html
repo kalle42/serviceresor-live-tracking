@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="sv">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#152720">
+    <title>API &amp; nycklar · Serviceresor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand"><span>SR</span><strong>Driftcentral</strong></div>
+        <nav aria-label="Huvudmeny">
+            <a href="index.html#overview">Översikt</a>
+            <a href="index.html#active-trips">Aktiva resor</a>
+            <a href="index.html#trips">Dagens resor</a>
+            <a href="users.html">Användare</a>
+            <a href="index.html#tasks">Schemaläggning</a>
+            <a href="index.html#logs">Loggar</a>
+            <a href="settings.html" aria-current="page">Inställningar</a>
+        </nav>
+        <p class="local-only">LOCALHOST <span id="clock">--:--:--</span></p>
+    </header>
+
+    <main>
+        <header class="masthead">
+            <div>
+                <p class="kicker">Serviceresor / Inställningar</p>
+                <h1>API &amp; nycklar</h1>
+                <p class="lede">Nycklar och kanaler för kartpublicering, SMS och notifieringar.</p>
+            </div>
+            <div class="header-actions">
+                <button class="button secondary" id="refresh-button">Uppdatera</button>
+            </div>
+        </header>
+
+        <div class="solo-grid">
+            <section class="panel system-panel">
+                <div class="panel-heading"><div><h2>Nycklar &amp; kanaler</h2></div><button class="button secondary" id="settings-save">Spara</button></div>
+                <p class="settings-hint">Lämna ett fält tomt för att behålla sparat värde. Rensa tar bort nyckeln direkt. Ändringar gäller nästa resa direkt; adminpanelen själv läser om vid varje anrop.</p>
+                <div id="settings-list" class="settings-list"><span class="loading-line">Läser inställningar...</span></div>
+            </section>
+        </div>
+    </main>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+</body>
+</html>

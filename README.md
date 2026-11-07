@@ -24,7 +24,7 @@ docker run -d --name fardtjanst --restart unless-stopped \
 Installera på Windows
 Ladda ner och kör ServiceresorSetup.exe
 
-Öppna `http://127.0.0.1:8787` och logga in som `admin`. Där finns dagens plan, schemalagda uppgifter, aktiva kartor, inställningar för nycklar och testknappar för SMS/ntfy-kanalerna.
+Öppna `http://127.0.0.1:8787` och logga in som `admin`. Översikten visar dagens plan, schemalagda uppgifter och aktiva kartor. Menyn i toppen har egna sidor för `Användare & leverans` och `API & nycklar` (nycklar och testknappar för SMS/ntfy-kanalerna).
 
 
 ## Automatik
