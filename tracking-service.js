@@ -32,6 +32,8 @@ const SESSION_RUNTIME_DIR = path.join(__dirname, 'session-runtime');
 const MINUTES_BEFORE_DEPARTURE = 10;
 const MINUTES_AFTER_DEPARTURE = 90;
 const SESSION_URL_LIFETIME_MINUTES = 60;
+// Rotera inte kartan om mindre än detta återstår av länkens livstid.
+const ROTATION_MIN_REMAINING_MINUTES = 5;
 const VEHICLE_NUMBER_CHECK_INTERVAL_MS = 10000;
 const POSITION_HEARTBEAT_INTERVAL_MS = 30000;
 const VEHICLE_API_CHECK_INTERVAL_MS = 30000;
@@ -465,7 +467,10 @@ async function trackTrip(trip, user) {
         if (sessionRotationCount >= 1) throw new Error('Sessionskartan försvann igen efter rotation.');
         // En ny länk efter utgången är meningslös: publiceringen får 60 minuter från nu,
         // men mottagaren har redan fått en titel som säger att resan är slut.
-        if (Date.now() >= sessionExpiresAt) return;
+        // Samma sak gäller strax före utgången: en karta som bara lever några minuter
+        // (den nya länken ärver samma sessionExpiresAt) är inte värd en ny notis,
+        // särskilt inte när spårningen ändå avslutas vid 60-minutersgränsen.
+        if (Date.now() >= sessionExpiresAt - ROTATION_MIN_REMAINING_MINUTES * 60 * 1000) return;
         sessionRotationCount += 1;
         await deleteSessionSite(session.slug).catch(() => {});
         unregisterSession(session.slug);
