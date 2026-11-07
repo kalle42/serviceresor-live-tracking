@@ -1,0 +1,6 @@
+data/
+node_modules/
+*.log
+scheduler-state.json
+scheduler-command.json
+todays-trips.json

@@ -86,6 +86,10 @@ Planeraren körs klockan `01:00` och:
 - Skickar kartlänken via konfigurerade kanaler.
 - Avslutar kartan efter 60 minuter.
 
+## Docker
+
+Det finns även en Docker-version i [docker/](docker/README.md). Windows-versionen i roten är oförändrad; `docker/app/` innehåller kopior av de fungerande filerna och `node docker/sync-app.js` håller dem uppdaterade.
+
 ## Tester
 
 ```powershell

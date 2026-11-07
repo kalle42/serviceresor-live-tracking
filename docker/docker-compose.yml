@@ -1,0 +1,16 @@
+# Kör: docker compose up -d
+# Konfigurationen läses från ./data (skapas vid första starten).
+services:
+  fardtjanst:
+    build: .
+    image: fardtjanst:latest
+    container_name: fardtjanst
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    environment:
+      TZ: Europe/Stockholm
+      # Servern måste lyssna på alla gränssnitt för att portmappningen ska nå den.
+      ADMIN_DASHBOARD_HOST: 0.0.0.0
+    volumes:
+      - ./data:/app/data

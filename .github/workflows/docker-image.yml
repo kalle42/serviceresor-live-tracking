@@ -1,0 +1,54 @@
+# Bygger Docker-bilden för Serviceresor och publicerar den till GitHub
+# Container Registry (ghcr.io) så att man kan dra den med docker pull
+# i stället för att bygga lokalt. Inga hemligheter finns i bilden:
+# docker/data är avstängt i .dockerignore och utanför Git.
+name: Docker image
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'docker/**'
+      - '.github/workflows/docker-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Kopiorna i docker/app ska alltid motsvara de fungerande filerna i roten.
+      # Kör synkningen och fallet om något blev ändrat (då glömdes en synk).
+      - name: Kontrollera att docker/app är synkad
+        run: |
+          node docker/sync-app.js
+          git diff --exit-code -- docker/app
+
+      - name: Logga in på ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bildmetadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha
+
+      - name: Bygg och publicera
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

@@ -15,3 +15,7 @@ tray/bin/
 tray/obj/
 *.log
 screenshots/*.png
+# Docker-versionens hemligheter och körsdata.
+docker/data/
+docker/scheduler-state.json
+docker/scheduler-command.json
