@@ -3,6 +3,7 @@
 Läser dagens Serviceresor, kontrollerar avbokningar och skapar krypterade livekartor över resorna. Kartlänken skickas via 46elks, TextBee och/eller ntfy och kartan stängs efter 60 minuter. Kartvisaren är en Leaflet-karta med OpenStreetMap som publiceras till here.now.
 
 Docker
+
 docker run -d --name fardtjanst --restart unless-stopped \
   -p 127.0.0.1:8787:8787 \
   -v /path/till/docker/data:/app/data \
@@ -22,6 +23,7 @@ docker run -d --name fardtjanst --restart unless-stopped \
   ghcr.io/kalle42/serviceresor-live-tracking:latest
 
 Installera på Windows
+
 Ladda ner och kör ServiceresorSetup.exe
 
 Öppna `http://127.0.0.1:8787` och logga in som `admin`. Översikten visar dagens plan, schemalagda uppgifter och aktiva kartor. Menyn i toppen har egna sidor för `Användare & leverans` och `API & nycklar` (nycklar och testknappar för SMS/ntfy-kanalerna).
