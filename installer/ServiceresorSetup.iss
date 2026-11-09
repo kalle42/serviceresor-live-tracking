@@ -76,19 +76,32 @@ Type: filesandordirs; Name: "{app}\session-runtime"
 Type: filesandordirs; Name: "{localappdata}\Serviceresor"
 
 [Code]
+// Wizard-sidan där användaren anger adminlösenordet. Hålls global så att
+// alla wizard-händelser (InitializeWizard, NextButtonClick, RunSetupApp)
+// nås samma sida och det angivna värdet.
 var
   AdminPage: TInputQueryWizardPage;
 
+// Skapar det maskerade steg där adminlösenordet anges. Nödvändigt för att
+// lösenordet annars bara efterfrågas i ett konsolfönster i slutet av
+// installationen (Read-Host i setup-app.ps1) – lätt att missa, utan
+// bekräftelsefält och utan kontroll förrän allt annat är installerat.
+// Läggs efter sidan för installationsmapp, före installationsöversikten.
 procedure InitializeWizard;
 begin
   AdminPage := CreateInputQueryPage(wpSelectDir,
     'Adminlösenord', 'Lösenord till adminpanelen',
     'Ange det lösenord som ska användas för adminpanelen på http://127.0.0.1:8787.' + #13#10#13#10 +
     'Minst 12 tecken. Det sparas lokalt för Windows-användaren.');
+  // True = fältet maskeras med asterisker så att ingen ser lösenordet.
   AdminPage.Add('Lösenord:', True);
   AdminPage.Add('Upprepa lösenordet:', True);
 end;
 
+// Validerar lösenordet innan installationen får fortsätta. Fälten måste
+// matcha (skyddar mot skrivfel) och vara minst 12 tecken – samma gräns som
+// setup-app.ps1 kastar fel på. Bättre att stoppa här än att låta
+// installationen köra klart och sedan misslyckas i sista steget.
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   Pw: String;
@@ -110,6 +123,9 @@ begin
   end;
 end;
 
+// Kör ett program utan fönster och returnerar True bara om det startades
+// och slutade med utgångskod 0. Används av kravkontrollerna nedan för att
+// testa verktyg som kan ligga utanför den fasta installationssökvägen.
 function RunCheck(const Exe, Args: string): Boolean;
 var
   Code: Integer;
@@ -117,11 +133,16 @@ begin
   Result := Exec(Exe, Args, '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
 end;
 
+// Node.js krävs för att köra själva tjänsterna (tracking-service.js och
+// admin-server.js). winget-installeraren lägger Node.js i standard sökväg,
+// så det räcker att kontrollera där.
 function HasNode(): Boolean;
 begin
   Result := FileExists('C:\Program Files\nodejs\node.exe');
 end;
 
+// Git för Windows krävs eftersom here.now-publiceringen körs via Git Bash
+// (publish.sh anropas med bash.exe, se local-env.js).
 function HasGit(): Boolean;
 begin
   Result := FileExists('C:\Program Files\Git\bin\git.exe')
@@ -129,18 +150,27 @@ begin
     or RunCheck('git.exe', '--version');
 end;
 
+// .NET 8 SDK krävs för att bygga tray-applikationen
+// (tray\ServiceresorTray.csproj) som setup-app.ps1 publicerar till
+// %LOCALAPPDATA%\Serviceresor under installationen.
 function HasDotnet(): Boolean;
 begin
   Result := FileExists('C:\Program Files\dotnet\dotnet.exe')
     or RunCheck('dotnet.exe', '--version');
 end;
 
+// Google Chrome krävs av tjänsterna – det är den som local-env.js
+// (resolveChrome) pekar ut för webbläsarkörningarna. Kontrolleras här så
+// att felet syns redan i guiden i stället för först när tjänsten startar.
 function HasChrome(): Boolean;
 begin
   Result := FileExists('C:\Program Files\Google\Chrome\Application\chrome.exe')
     or FileExists('C:\Program Files (x86)\Google\Chrome\Application\chrome.exe');
 end;
 
+// Letar upp winget.exe (PATH eller WindowsApps) för automatisk installation
+// av saknade förutsättningar. Returnerar tomt om winget saknas, så att
+// PrepareToInstall i stället be användaren installera manuellt.
 function WingetPath(): string;
 begin
   if RunCheck('winget.exe', '--version') then
@@ -151,6 +181,8 @@ begin
     Result := '';
 end;
 
+// Installerar ett paket med winget tyst (--silent, godkända avtal). Används
+// av PrepareToInstall när användaren har godkänt automatisk installation.
 function RunWinget(const Winget, Id: string): Boolean;
 var
   Code: Integer;
@@ -160,6 +192,8 @@ begin
     '', SW_SHOWNORMAL, ewWaitUntilTerminated, Code) and (Code = 0);
 end;
 
+// Sammanställer vilka förutsättningar som saknas som en punktlista för
+// dialogrutorna i PrepareToInstall. Tom sträng = allt finns, inget att göra.
 function MissingList(): string;
 begin
   Result := '';
@@ -169,6 +203,11 @@ begin
   if not HasChrome() then Result := Result + '- Google Chrome' + #13#10;
 end;
 
+// Körs innan filerna kopieras. Ser till att förutsättningarna (Node.js,
+// Git, .NET, Chrome) finns – antingen redan installerade eller via winget
+// efter att användaren godkänt. Returnerar ett felmeddelande för att
+// avbryta installationen om användaren vill det eller om Node.js fortfarande
+// saknas, eftersom ingenting fungerar utan det.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Winget, Missing: string;
@@ -212,13 +251,15 @@ var
   Cmd, Pw, PwFile, EscapedPwFile: string;
   Code: Integer;
 begin
+  // Kör setup-app.ps1, som sparar ADMIN_DASHBOARD_PASSWORD som miljövariabel
+  // för Windows-användaren och slutför konfigurationen (tray-app m.m.).
   // Lösenordet lämnas via en tillfällig fil som läses in i samma PowerShell-
-  // process: det hamnar aldrig på kommandoraden (där det vore synligt för
-  // andra processer) och tål alla specialtecken. /ADMINPASSWORD="..." kan
-  // användas vid tysta installationer.
-  Pw := ExpandConstant('{param:AdminPassword|}');
+  // process: det hamnar aldrig på kommandoraden, där det vore synligt för
+  // andra processer via processlistan, och det tål alla specialtecken
+  // (", ', $ och \). Filen raderas direkt efter körningen.
+  Pw := ExpandConstant('{param:AdminPassword|}');  // /ADMINPASSWORD vid tyst installation
   if Pw = '' then
-    Pw := AdminPage.Values[0];
+    Pw := AdminPage.Values[0];                     // annars värdet från wizard-sidan
   PwFile := ExpandConstant('{tmp}\admin-password.txt');
   Cmd := '-NoProfile -ExecutionPolicy Bypass -Command "$env:Path=' +
     '[Environment]::GetEnvironmentVariable(''Path'',''Machine'')+'';''+' +
@@ -226,6 +267,8 @@ begin
   if Pw <> '' then
   begin
     SaveStringToFile(PwFile, Pw, False);
+    // Enkelt citattecken i sökvägen måste dubblas för att fungera inuti
+    // PowerShell-strängen som byggs nedan.
     EscapedPwFile := PwFile;
     StringChangeEx(EscapedPwFile, '''', '''''', True);
     Cmd := Cmd + '$env:ADMIN_DASHBOARD_PASSWORD=(Get-Content -Raw ''' + EscapedPwFile + '''); ';
@@ -237,6 +280,10 @@ begin
   Result := Code;
 end;
 
+// När allt är installerat körs setup-app.ps1 (ssPostInstall). Om det
+// misslyckas visas ett felmeddelande så att användaren vet att konfigurationen
+// måste köras om – filerna är då redan på plats och setup-app.ps1 kan köras
+// ensamt utan att installera om allt.
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
