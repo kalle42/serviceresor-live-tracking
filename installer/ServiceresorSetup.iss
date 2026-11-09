@@ -1,6 +1,6 @@
 ﻿#define AppName "Serviceresor Live Tracking"
 #define AppShortName "Serviceresor"
-#define AppVersion "1.2.0"
+#define AppVersion "1.3.0"
 #define AppPublisher "Serviceresor"
 #define ProjectRoot ".."
 
@@ -76,6 +76,40 @@ Type: filesandordirs; Name: "{app}\session-runtime"
 Type: filesandordirs; Name: "{localappdata}\Serviceresor"
 
 [Code]
+var
+  AdminPage: TInputQueryWizardPage;
+
+procedure InitializeWizard;
+begin
+  AdminPage := CreateInputQueryPage(wpSelectDir,
+    'Adminlösenord', 'Lösenord till adminpanelen',
+    'Ange det lösenord som ska användas för adminpanelen på http://127.0.0.1:8787.' + #13#10#13#10 +
+    'Minst 12 tecken. Det sparas lokalt för Windows-användaren.');
+  AdminPage.Add('Lösenord:', True);
+  AdminPage.Add('Upprepa lösenordet:', True);
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Pw: String;
+begin
+  Result := True;
+  if CurPageID <> AdminPage.ID then
+    Exit;
+  Pw := AdminPage.Values[0];
+  if Pw <> AdminPage.Values[1] then
+  begin
+    MsgBox('Lösenorden matchar inte. Försök igen.', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+  if Length(Pw) < 12 then
+  begin
+    MsgBox('Lösenordet måste ha minst 12 tecken.', mbError, MB_OK);
+    Result := False;
+  end;
+end;
+
 function RunCheck(const Exe, Args: string): Boolean;
 var
   Code: Integer;
@@ -175,15 +209,31 @@ end;
 
 function RunSetupApp(): Integer;
 var
-  Cmd: string;
+  Cmd, Pw, PwFile, EscapedPwFile: string;
   Code: Integer;
 begin
+  // Lösenordet lämnas via en tillfällig fil som läses in i samma PowerShell-
+  // process: det hamnar aldrig på kommandoraden (där det vore synligt för
+  // andra processer) och tål alla specialtecken. /ADMINPASSWORD="..." kan
+  // användas vid tysta installationer.
+  Pw := ExpandConstant('{param:AdminPassword|}');
+  if Pw = '' then
+    Pw := AdminPage.Values[0];
+  PwFile := ExpandConstant('{tmp}\admin-password.txt');
   Cmd := '-NoProfile -ExecutionPolicy Bypass -Command "$env:Path=' +
     '[Environment]::GetEnvironmentVariable(''Path'',''Machine'')+'';''+' +
-    '[Environment]::GetEnvironmentVariable(''Path'',''User''); & ''' +
-    ExpandConstant('{app}\setup-app.ps1') + '''"';
+    '[Environment]::GetEnvironmentVariable(''Path'',''User''); ';
+  if Pw <> '' then
+  begin
+    SaveStringToFile(PwFile, Pw, False);
+    EscapedPwFile := PwFile;
+    StringChangeEx(EscapedPwFile, '''', '''''', True);
+    Cmd := Cmd + '$env:ADMIN_DASHBOARD_PASSWORD=(Get-Content -Raw ''' + EscapedPwFile + '''); ';
+  end;
+  Cmd := Cmd + '& ''' + ExpandConstant('{app}\setup-app.ps1') + '''"';
   if not Exec('powershell.exe', Cmd, ExpandConstant('{app}'), SW_SHOWNORMAL, ewWaitUntilTerminated, Code) then
     Code := -1;
+  DeleteFile(PwFile);
   Result := Code;
 end;
 
