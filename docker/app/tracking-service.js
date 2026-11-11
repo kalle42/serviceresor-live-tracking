@@ -751,6 +751,10 @@ async function main() {
     try {
         const plans = [];
         for (const user of USERS) {
+            if (!user.ssn || !user.password) {
+                console.log(`Inga inloggningsuppgifter (personnummer/lösenord) för ${user.id}; planeringen hoppar över.`);
+                continue;
+            }
             const userTrips = (await getTodaysTrips(user)).sort((a, b) => a.minutes - b.minutes);
             plans.push({ userId: user.id, trips: userTrips });
         }
@@ -776,6 +780,10 @@ async function runTrackedTrip() {
 
     const user = USERS.find((candidate) => candidate.id === userId);
     if (!user) throw new Error(`Okänd användare: ${userId}`);
+    if (!user.ssn || !user.password) {
+        console.log(`[${time}] Inga inloggningsuppgifter för ${user.id}; spårningen hoppar över.`);
+        return;
+    }
     const trip = { url, time, minutes: Number(minutes) };
     console.log(`[${time}] Schemalagd reseprocess startad.`);
     await trackTrip(trip, user);
@@ -789,6 +797,12 @@ async function checkTripStatus() {
 
     const user = USERS.find((candidate) => candidate.id === userId);
     if (!user) throw new Error(`Okänd användare: ${userId}`);
+    if (!user.ssn || !user.password) {
+        // Returkod 0, inte 10: spårningsuppgiften behålls eftersom uppgifterna
+        // kan komma tillbaka innan avgång – då ska spårningen kunna köra ändå.
+        console.log(`[${time}] Inga inloggningsuppgifter för ${user.id}; kontrollen hoppar över.`);
+        return;
+    }
     const trips = await getTodaysTrips(user);
     const stillBooked = trips.some((trip) => trip.url === url);
     if (!stillBooked) {

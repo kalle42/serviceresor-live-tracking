@@ -71,7 +71,7 @@ function readUsers() {
 function maskedUsers() {
     return readUsers().users.map((user) => ({
         id: user.id,
-        ssnMasked: user.ssn ? `${user.ssn.slice(0, 4)}****-****` : 'Not set',
+        ssnMasked: user.ssn ? `${user.ssn.slice(0, 4)}****-****` : 'saknas',
         hasPassword: Boolean(user.password),
         smsTo: user.smsTo || [],
         textbeeTo: user.textbeeTo || [],
@@ -87,9 +87,11 @@ function validateUser(input, existing) {
     if (textbeeTo.some((number) => !/^\+[1-9]\d{7,14}$/.test(number))) throw new Error('A TextBee number is invalid.');
     const ntfyTopics = (Array.isArray(input.ntfyTopics) ? input.ntfyTopics : []).filter(Boolean);
     if (ntfyTopics.some((topic) => !/^[-_A-Za-z0-9]{1,64}$/.test(topic))) throw new Error('An ntfy topic is invalid.');
-    const ssn = input.ssn || existing?.ssn;
-    const password = input.password || existing?.password;
-    if (!ssn || !password) throw new Error('Serviceresor credentials are required.');
+    // Tomt fält betyder "behåll det sparade värdet"; rensa-flaggor tar bort det.
+    // Personnummer/lösenord får vara borttagna – då hoppar planering och spårning
+    // över användaren med ett loggmeddelande i stället för att krascha dagens körning.
+    const ssn = input.clearSsn ? '' : (input.ssn || existing?.ssn || '');
+    const password = input.clearPassword ? '' : (input.password || existing?.password || '');
     return { id: input.id, ssn, password, smsTo, textbeeTo, ntfyTopics };
 }
 
@@ -145,6 +147,18 @@ async function taskState() {
 
 async function processState() {
     return readJson(SCHEDULER_STATE_FILE, { processes: [] }).processes || [];
+}
+
+// Dagens plan rensas också, annars står borttagna användare kvar som
+// schemalagda resor i panelen fram till nästa planering. todays-trips.json är
+// ingen symbolisk länk (till skillnad från users.local.json), så en vanlig
+// skrivning räcker här.
+function prunePlan(userId) {
+    const file = path.join(ROOT, 'todays-trips.json');
+    const plan = readJson(file, null);
+    if (!plan || !Array.isArray(plan.users) || !plan.users.some((entry) => entry.userId === userId)) return;
+    plan.users = plan.users.filter((entry) => entry.userId !== userId);
+    fs.writeFileSync(file, `${JSON.stringify(plan, null, 2)}\n`);
 }
 
 function writeSchedulerCommand(command) {
@@ -403,6 +417,25 @@ const server = http.createServer(async (request, response) => {
             const next = validateUser(body, existing);
             const users = existing ? current.users.map((user) => user.id === next.id ? next : user) : [...current.users, next];
             fs.writeFileSync(USERS_FILE, `${JSON.stringify({ users }, null, 4)}\n`);
+            return sendJson(response, 200, { users: maskedUsers() });
+        }
+        if (url.pathname === '/api/users' && request.method === 'DELETE') {
+            if (!requireAction(request, response)) return;
+            const body = await readBody(request);
+            const id = typeof body.id === 'string' ? body.id.trim() : '';
+            if (!/^[a-z0-9_-]{1,40}$/i.test(id)) return sendJson(response, 400, { error: 'Användar-id är ogiltigt.' });
+            const current = readUsers();
+            if (!current.users.some((user) => user.id === id)) return sendJson(response, 404, { error: 'Användaren finns inte.' });
+            fs.writeFileSync(USERS_FILE, `${JSON.stringify({ users: current.users.filter((user) => user.id !== id) }, null, 4)}\n`);
+            // Städningen är bäst-efforts: användaren är redan borta, och ett fel här
+            // ska inte rapportera borttagningen som misslyckad. Schemaläggaren tar
+            // bort resejobben; en pågående körning får slutföras.
+            try {
+                writeSchedulerCommand({ command: 'remove-user-tasks', userId: id, requestedAt: new Date().toISOString() });
+                prunePlan(id);
+            } catch (error) {
+                console.error(`Kunde inte städa efter borttagen användare ${id}:`, error);
+            }
             return sendJson(response, 200, { users: maskedUsers() });
         }
         if (url.pathname === '/api/settings' && request.method === 'PUT') {

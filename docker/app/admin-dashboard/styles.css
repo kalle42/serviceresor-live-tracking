@@ -75,6 +75,9 @@ h1 { max-width:680px; margin:0; font-size:clamp(2.8rem,5vw,5.1rem); line-height:
 .user-form small { font-weight:400; text-transform:none; }
 .user-form input, .user-form textarea, select { width:100%; border:1px solid #aaa59b; padding:10px; color:var(--ink); background:#fffdf8; resize:vertical; }
 .two-columns { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.secret-field { display:flex; gap:8px; align-items:stretch; }
+.secret-field input { flex:1; min-width:0; }
+.user-actions { display:flex; gap:14px; align-items:start; }
 .table-wrap { overflow:auto; }
 table { width:100%; border-collapse:collapse; font-size:.8rem; }
 th, td { padding:11px 9px; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap; }

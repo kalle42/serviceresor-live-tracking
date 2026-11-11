@@ -217,6 +217,14 @@ function stopTripJobs() {
     log('Alla planerade resejobb avregistrerade.');
 }
 
+// remove-user-tasks: en användare har tagits bort i panelen. Planerade jobb för
+// användaren avregistreras; pågående körningar får slutföras, som i stop-sessions.
+function removeUserJobs(userId) {
+    const before = jobs.length;
+    jobs = jobs.filter((job) => job.userId !== userId || job.state === 'Running');
+    log(`Resejobb för ${userId} avregistrerade (${before - jobs.length} st).`);
+}
+
 function handleCommands() {
     if (!fs.existsSync(COMMAND_FILE)) return;
     let command = null;
@@ -229,6 +237,7 @@ function handleCommands() {
     if (!command) return;
     if (command.command === 'run-planner') runPlanner('begärd från adminpanelen');
     else if (command.command === 'stop-sessions') stopTripJobs();
+    else if (command.command === 'remove-user-tasks') removeUserJobs(command.userId);
 }
 
 function fireDueJobs() {

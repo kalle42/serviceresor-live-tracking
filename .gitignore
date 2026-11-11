@@ -15,7 +15,15 @@ tray/bin/
 tray/obj/
 *.log
 screenshots/*.png
+# Inbäddade förutsättningsinstallatörer (byggmaterial för installer/).
+# För stora för GitHub (>100 MB per fil) och ska aldrig commitas.
+/node-v*-x64.msi
+/Git-*-64-bit.exe
+/dotnet-sdk-*-win-x64.exe
+/googlechromestandalone*.msi
 # Docker-versionens hemligheter och körsdata.
 docker/data/
 docker/scheduler-state.json
 docker/scheduler-command.json
+# Genererat run-kommando med ifyllda hemligheter – aldrig commita.
+docker/run-fardtjanst.sh

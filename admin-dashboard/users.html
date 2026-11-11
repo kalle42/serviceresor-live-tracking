@@ -30,7 +30,7 @@
             <div>
                 <p class="kicker">Serviceresor / Användare</p>
                 <h1>Användare &amp; leverans</h1>
-                <p class="lede">Hantera resenärer, kontaktvägar och notifieringar. Lämna ett fält tomt för att behålla ett sparat värde.</p>
+                <p class="lede">Hantera resenärer, kontaktvägar och notifieringar. Lämna ett fält tomt för att behålla ett sparat värde; Rensa tar bort det sparade värdet.</p>
             </div>
             <div class="header-actions">
                 <button class="button secondary" id="refresh-button">Uppdatera</button>
@@ -45,8 +45,20 @@
                     <div class="form-title"><h3 id="form-title">Redigera användare</h3><button type="button" class="icon-button" id="close-form" aria-label="Close">×</button></div>
                     <label>ID<input id="user-id" required pattern="[A-Za-z0-9_-]+" autocomplete="username"></label>
                     <div class="two-columns">
-                        <label>Personnummer<input id="user-ssn" placeholder="Lämna tomt för att behålla" autocomplete="off"></label>
-                        <label>Lösenord<input id="user-password" type="password" placeholder="Lämna tomt för att behålla" autocomplete="new-password"></label>
+                        <label>Personnummer
+                            <span class="secret-field">
+                                <input id="user-ssn" placeholder="Lämna tomt för att behålla" autocomplete="off">
+                                <button type="button" class="settings-test" id="clear-ssn">Rensa</button>
+                            </span>
+                            <small id="user-ssn-state">Inget sparat värde</small>
+                        </label>
+                        <label>Lösenord
+                            <span class="secret-field">
+                                <input id="user-password" type="password" placeholder="Lämna tomt för att behålla" autocomplete="new-password">
+                                <button type="button" class="settings-test" id="clear-password">Rensa</button>
+                            </span>
+                            <small id="user-password-state">Inget sparat värde</small>
+                        </label>
                     </div>
                     <label>SMS-nummer <small>ett per rad</small><textarea id="user-sms" rows="3" placeholder="+46701234567"></textarea></label>
                     <label>TextBee-nummer <small>ett per rad</small><textarea id="user-textbee" rows="3" placeholder="+46701234567"></textarea></label>

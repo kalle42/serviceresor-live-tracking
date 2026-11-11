@@ -120,12 +120,43 @@ function initDashboard() {
 function renderUsers(users) {
     $('#user-list').innerHTML = users.map((user) => `
         <article class="user-card">
-            <div><h3>${escapeHtml(user.id)}</h3><p>${escapeHtml(user.ssnMasked)} · ${user.hasPassword ? 'Lösenord sparat' : 'Lösenord saknas'}</p>
+            <div><h3>${escapeHtml(user.id)}</h3><p>Personnummer ${escapeHtml(user.ssnMasked)} · ${user.hasPassword ? 'Lösenord sparat' : 'Lösenord saknas'}</p>
                 <div class="channel-list"><span class="channel">SMS ${list(user.smsTo).length}</span><span class="channel">TextBee ${list(user.textbeeTo).length}</span><span class="channel">ntfy ${list(user.ntfyTopics).length}</span></div>
             </div>
-            <button class="text-button edit-user" data-user="${escapeHtml(user.id)}">Redigera</button>
+            <div class="user-actions">
+                <button class="text-button edit-user" data-user="${escapeHtml(user.id)}">Redigera</button>
+                <button class="text-button danger delete-user" data-user="${escapeHtml(user.id)}">Ta bort</button>
+            </div>
         </article>`).join('');
     document.querySelectorAll('.edit-user').forEach((button) => button.addEventListener('click', () => openUserForm(users.find((user) => user.id === button.dataset.user))));
+    document.querySelectorAll('.delete-user').forEach((button) => button.addEventListener('click', async () => {
+        const id = button.dataset.user;
+        if (!confirm(`Ta bort ${id}? Personuppgifter, mottagare och schemalagda spårningar tas bort. Det går inte att ångra.`)) return;
+        try {
+            await api('/api/users', { method:'DELETE', body:JSON.stringify({ id }), action:true });
+            if (!$('#user-form').classList.contains('hidden') && $('#user-id').value === id) $('#user-form').classList.add('hidden');
+            await refreshUsers(true);
+            toast('Användaren togs bort');
+        } catch (error) { toast(error.message); }
+    }));
+}
+
+// Rensa-knapparna markerar ett sparat värde för borttagning vid sparning.
+// Tomt fält betyder annars "behåll", så rensning måste vara ett eget tillstånd.
+const SECRET_FIELDS = {
+    ssn: { input:'#user-ssn', button:'#clear-ssn', state:'#user-ssn-state' },
+    password: { input:'#user-password', button:'#clear-password', state:'#user-password-state' }
+};
+const clearing = { ssn:false, password:false };
+let secretPlaceholder = 'Lämna tomt för att behålla';
+
+function syncSecretField(secret) {
+    const field = SECRET_FIELDS[secret];
+    const input = $(field.input);
+    if (clearing[secret]) input.value = '';
+    input.disabled = clearing[secret];
+    input.placeholder = clearing[secret] ? 'Rensas när du sparar' : secretPlaceholder;
+    $(field.button).textContent = clearing[secret] ? 'Ångra' : 'Rensa';
 }
 
 function openUserForm(user = null) {
@@ -138,6 +169,13 @@ function openUserForm(user = null) {
     $('#user-sms').value = list(user?.smsTo).join('\n');
     $('#user-textbee').value = list(user?.textbeeTo).join('\n');
     $('#user-ntfy').value = list(user?.ntfyTopics).join('\n');
+    secretPlaceholder = user ? 'Lämna tomt för att behålla' : 'Ange värde';
+    for (const secret of Object.keys(SECRET_FIELDS)) {
+        clearing[secret] = false;
+        syncSecretField(secret);
+    }
+    $('#user-ssn-state').textContent = user && user.ssnMasked !== 'saknas' ? `Sparat värde: ${user.ssnMasked}` : 'Inget sparat värde';
+    $('#user-password-state').textContent = user?.hasPassword ? 'Lösenord sparat' : 'Inget sparat värde';
     $('#user-form').scrollIntoView({ behavior:'smooth', block:'center' });
 }
 
@@ -154,6 +192,7 @@ function initUsers() {
         event.preventDefault();
         const payload = {
             id: $('#user-id').value.trim(), ssn: $('#user-ssn').value.trim(), password: $('#user-password').value,
+            clearSsn: clearing.ssn, clearPassword: clearing.password,
             smsTo: $('#user-sms').value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
             textbeeTo: $('#user-textbee').value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
             ntfyTopics: $('#user-ntfy').value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean)
@@ -167,6 +206,12 @@ function initUsers() {
     });
     $('#new-user-button').addEventListener('click', () => openUserForm());
     $('#close-form').addEventListener('click', () => $('#user-form').classList.add('hidden'));
+    for (const secret of Object.keys(SECRET_FIELDS)) {
+        $(SECRET_FIELDS[secret].button).addEventListener('click', () => {
+            clearing[secret] = !clearing[secret];
+            syncSecretField(secret);
+        });
+    }
     $('#refresh-button').addEventListener('click', () => refreshUsers());
     refreshUsers(true);
 }

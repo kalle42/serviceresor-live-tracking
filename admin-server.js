@@ -71,7 +71,7 @@ function readUsers() {
 function maskedUsers() {
     return readUsers().users.map((user) => ({
         id: user.id,
-        ssnMasked: user.ssn ? `${user.ssn.slice(0, 4)}****-****` : 'Not set',
+        ssnMasked: user.ssn ? `${user.ssn.slice(0, 4)}****-****` : 'saknas',
         hasPassword: Boolean(user.password),
         smsTo: user.smsTo || [],
         textbeeTo: user.textbeeTo || [],
@@ -87,9 +87,11 @@ function validateUser(input, existing) {
     if (textbeeTo.some((number) => !/^\+[1-9]\d{7,14}$/.test(number))) throw new Error('A TextBee number is invalid.');
     const ntfyTopics = (Array.isArray(input.ntfyTopics) ? input.ntfyTopics : []).filter(Boolean);
     if (ntfyTopics.some((topic) => !/^[-_A-Za-z0-9]{1,64}$/.test(topic))) throw new Error('An ntfy topic is invalid.');
-    const ssn = input.ssn || existing?.ssn;
-    const password = input.password || existing?.password;
-    if (!ssn || !password) throw new Error('Serviceresor credentials are required.');
+    // Tomt fält betyder "behåll det sparade värdet"; rensa-flaggor tar bort det.
+    // Personnummer/lösenord får vara borttagna – då hoppar planering och spårning
+    // över användaren med ett loggmeddelande i stället för att krascha dagens körning.
+    const ssn = input.clearSsn ? '' : (input.ssn || existing?.ssn || '');
+    const password = input.clearPassword ? '' : (input.password || existing?.password || '');
     return { id: input.id, ssn, password, smsTo, textbeeTo, ntfyTopics };
 }
 
@@ -151,6 +153,26 @@ async function taskState() {
 async function processState() {
     const result = await powershellJson(`@(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.CommandLine -match 'tracking-service\.js|admin-server\.js' } | ForEach-Object { [PSCustomObject]@{ id=$_.ProcessId; command=$_.CommandLine; created=$_.CreationDate } }) | ConvertTo-Json -Depth 3`);
     return Array.isArray(result) ? result : [result];
+}
+
+// Reseuppgifterna är döpta Fardtjanst-trip-(check-)?<datum>-<användare>-<tid>.
+// Datumet har fast bredd direkt efter prefixet, så ett användar-id med bindestreck
+// kan inte förväxlas med en annan användares uppgifter. Endast avregistrering:
+// en pågående körning får slutföras (Stop-ScheduledTask skulle döda wrappern
+// och lämna en föräldralös node-process).
+async function removeUserTasks(userId) {
+    const pattern = `^Fardtjanst-trip-(check-)?\\d{4}-\\d{2}-\\d{2}-${userId}-\\d{3,4}$`;
+    await powershellJson(`@(Get-ScheduledTask | Where-Object { $_.TaskName -cmatch '${pattern}' } | ForEach-Object { Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false -ErrorAction SilentlyContinue; $_.TaskName }) | ConvertTo-Json`);
+}
+
+// Dagens plan rensas också, annars står borttagna användare kvar som
+// schemalagda resor i panelen fram till nästa planering.
+function prunePlan(userId) {
+    const file = path.join(ROOT, 'todays-trips.json');
+    const plan = readJson(file, null);
+    if (!plan || !Array.isArray(plan.users) || !plan.users.some((entry) => entry.userId === userId)) return;
+    plan.users = plan.users.filter((entry) => entry.userId !== userId);
+    fs.writeFileSync(file, `${JSON.stringify(plan, null, 2)}\n`);
 }
 
 // Fälten som går att redigera från panelen. ADMIN_DASHBOARD_PASSWORD står medvetet
@@ -392,6 +414,24 @@ const server = http.createServer(async (request, response) => {
             const next = validateUser(body, existing);
             const users = existing ? current.users.map((user) => user.id === next.id ? next : user) : [...current.users, next];
             fs.writeFileSync(USERS_FILE, `${JSON.stringify({ users }, null, 4)}\n`);
+            return sendJson(response, 200, { users: maskedUsers() });
+        }
+        if (url.pathname === '/api/users' && request.method === 'DELETE') {
+            if (!requireAction(request, response)) return;
+            const body = await readBody(request);
+            const id = typeof body.id === 'string' ? body.id.trim() : '';
+            if (!/^[a-z0-9_-]{1,40}$/i.test(id)) return sendJson(response, 400, { error: 'Användar-id är ogiltigt.' });
+            const current = readUsers();
+            if (!current.users.some((user) => user.id === id)) return sendJson(response, 404, { error: 'Användaren finns inte.' });
+            fs.writeFileSync(USERS_FILE, `${JSON.stringify({ users: current.users.filter((user) => user.id !== id) }, null, 4)}\n`);
+            // Städningen är bäst-efforts: användaren är redan borta, och ett fel här
+            // ska inte rapportera borttagningen som misslyckad.
+            try {
+                await removeUserTasks(id);
+                prunePlan(id);
+            } catch (error) {
+                console.error(`Kunde inte städa efter borttagen användare ${id}:`, error);
+            }
             return sendJson(response, 200, { users: maskedUsers() });
         }
         if (url.pathname === '/api/settings' && request.method === 'PUT') {
